@@ -1,7 +1,7 @@
 # REBUILT — Web deployment
 
 Static site (no build step): upload the contents of this folder to the root of the GitHub Pages branch
-(`omarelzanaty1/REBUILT`). All URLs are relative, so it works under `/REBUILT/`.
+(`omarelzanaty1/rebuilt0.4`). All URLs are relative, so it works under `/rebuilt0.4/`.
 
 ## What's in here
 
@@ -23,7 +23,7 @@ Static site (no build step): upload the contents of this folder to the root of t
 - Passwords: the app requires **at least 8 characters** (sign-up, reset, settings). Also set
   Supabase → Authentication → minimum password length = 8 so the server enforces the same rule.
 - Password recovery and sign-up confirmation email links return to this page. In Supabase → Authentication →
-  URL Configuration set **Site URL** to `https://omarelzanaty1.github.io/REBUILT/` and add the same URL to
+  URL Configuration set **Site URL** to `https://omarelzanaty1.github.io/rebuilt0.4/` and add the same URL to
   **Redirect URLs**, otherwise those links are rejected or sent somewhere else.
 - Supabase's built-in email service only delivers to members of the organization and is heavily rate-limited.
   For real users, configure a custom SMTP provider in Authentication → SMTP Settings.
