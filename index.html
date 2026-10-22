@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>REBUILT — Build yourself.</title>
+  <meta name="description" content="REBUILT — عادات ومهام وأهداف وتطوير ذاتي في مكان واحد. Build yourself." />
+  <meta name="theme-color" content="#201F19" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg" />
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/icon-32.png" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-180.png" />
+
+  <!-- Snapshot of the landing URL, taken BEFORE supabase-js consumes the hash.
+       Lets the app recognise a password-recovery link (…#access_token=…&type=recovery)
+       or an expired-link error. Only the raw strings are kept; nothing is read from them here. -->
+  <script>window.__REBUILT_BOOT_URL = { hash: window.location.hash || "", search: window.location.search || "" };</script>
+
+  <!-- Fonts: Cairo (Arabic + Latin UI) and Archivo Narrow (stand-in for the brand's Arial Narrow display face). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/tokens.css" />
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/screens.css" />
+  <link rel="stylesheet" href="css/gate.css" />
+  <link rel="stylesheet" href="css/ai-chat.css" />
+</head>
+<body>
+  <a class="skip-link" href="#page-content">تخطّى إلى المحتوى</a>
+
+  <div id="gate-root" class="gate-root" hidden></div>
+
+  <div id="app" hidden>
+    <aside class="sidebar" id="sidebar"></aside>
+    <header class="topbar" id="topbar"></header>
+    <main class="main" id="main">
+      <div class="page-content page-enter" id="page-content" tabindex="-1"></div>
+    </main>
+    <nav class="bottom-nav" id="bottom-nav" aria-label="التنقل السريع"></nav>
+  </div>
+
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
+  <div id="modal-root"></div>
+
+  <!-- Supabase JS (public publishable key only; every table is protected by RLS) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Core (order matters: each file only depends on ones loaded before it) -->
+  <script src="js/data.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/brand.js"></script>
+  <script src="js/helpers.js"></script>
+  <script src="js/xp.js"></script>
+  <script src="js/streak.js"></script>
+  <script src="js/achievements.js"></script>
+  <script src="js/goals.js"></script>
+  <script src="js/messages.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/components.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/toast.js"></script>
+  <script src="js/supabaseClient.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/supabaseData.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/shell.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/gate.js"></script>
+
+  <!-- Pages -->
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/habits.js"></script>
+  <script src="js/pages/tasks.js"></script>
+  <script src="js/pages/goals.js"></script>
+  <script src="js/pages/planner.js"></script>
+  <script src="js/pages/analytics.js"></script>
+  <script src="js/pages/achievementsPage.js"></script>
+  <script src="js/pages/ai.js"></script>
+  <script src="js/pages/aiComingSoon.js"></script>
+  <script src="js/pages/profile.js"></script>
+  <script src="js/pages/settings.js"></script>
+
+  <!-- App bootstrap (last) -->
+  <script src="js/app.js"></script>
+</body>
+</html>

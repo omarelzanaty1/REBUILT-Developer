@@ -1,0 +1,133 @@
+/* ============================================================
+   REBUILT — base.css
+   Reset, element defaults, typography helpers, focus + a11y.
+   Depends on tokens.css.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+html, body { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+/* Ambient brand glow — one soft orange wash anchored top-start. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(640px 420px at 92% -10%, rgba(253, 102, 43, 0.085), transparent 62%),
+    radial-gradient(520px 380px at 8% 108%, rgba(255, 229, 4, 0.05), transparent 60%);
+}
+
+h1, h2, h3, h4, p, figure, blockquote { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+a { color: inherit; text-decoration: none; }
+img, svg { max-width: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+[hidden] { display: none !important; }
+
+::selection { background: rgba(255, 229, 4, 0.28); color: var(--ink); }
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+/* Containers that only receive focus from code (the router moves focus to the page, the dialog
+   takes it on open) aren't controls — a ring around a whole page would just look like a glitch. */
+#page-content:focus-visible,
+.modal:focus-visible { outline: none; }
+
+/* Dark, quiet scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 10px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-track { background: transparent; }
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: fixed;
+  inset-block-start: 8px;
+  inset-inline-start: 8px;
+  z-index: 1000;
+  padding: 10px 16px;
+  background: var(--primary);
+  color: var(--ink-on-brand);
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-sm);
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: none; }
+
+/* ---------- Typography helpers ---------- */
+
+.display { font-family: var(--font-display); font-weight: 800; letter-spacing: -0.01em; }
+/* Latin numerals set in the brand's narrow display face. */
+.num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--brand-orange);
+}
+.muted { color: var(--ink-soft); }
+.faint { color: var(--ink-faint); }
+.text-brand { color: var(--primary); }
+.nowrap { white-space: nowrap; }
+bdi, .ltr { unicode-bidi: isolate; }
+
+.icon { display: inline-block; flex: none; vertical-align: -0.14em; }
+
+/* Respect users who ask for less motion (and the in-app setting). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
