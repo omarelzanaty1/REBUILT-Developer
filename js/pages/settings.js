@@ -68,7 +68,7 @@ REBUILT.Pages.settings = (function () {
           `
         <form class="form settings-form" id="password-form" novalidate>
           <div id="pw-notice" aria-live="polite"></div>
-          ${Components.inputField({ name: "password", type: "password", label: "الباسورد الجديد", hint: "6 حروف على الأقل." })}
+          ${Components.inputField({ name: "password", type: "password", label: "الباسورد الجديد", hint: `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل.` })}
           ${Components.inputField({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد الجديد" })}
           <div><button type="submit" class="btn btn--primary" id="pw-submit"><span>حفظ الباسورد</span></button></div>
         </form>`

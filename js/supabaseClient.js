@@ -15,8 +15,8 @@ window.REBUILT = window.REBUILT || {};
 
 REBUILT.SupabaseClient = (function () {
   const CONFIG = {
-    url: "https://erwlfiechvflbvebmqhl.supabase.co",
-    anonKey: "sb_publishable_qC3k3pj2Wsx5vxEuCvJalg_yyynI6Ah",
+    url: "https://jvyhtpfedkypwdzyadba.supabase.co",
+    anonKey: "sb_publishable_TLPC-KjlYAn34x-ry2qI0w_xoPwjIng",
   };
 
   let client = null;

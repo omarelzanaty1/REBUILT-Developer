@@ -345,7 +345,7 @@ REBUILT.Gate = (function () {
         ${noticeSlot()}
         ${isSignup ? field({ name: "name", label: "الاسم", autocomplete: "name", value: form.name, autofocus: true, maxlength: 40 }) : ""}
         ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: !isSignup })}
-        ${field({ name: "password", type: "password", label: "الباسورد", autocomplete: isSignup ? "new-password" : "current-password", hint: isSignup ? "6 حروف على الأقل. كل ما كان أطول كان أأمن." : "" })}
+        ${field({ name: "password", type: "password", label: "الباسورد", autocomplete: isSignup ? "new-password" : "current-password", hint: isSignup ? `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل. كل ما كان أطول كان أأمن.` : "" })}
         ${isSignup ? strengthMeter() : ""}
         ${isSignup ? field({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد", autocomplete: "new-password" }) : ""}
         ${!isSignup ? `<div class="gate__row"><button type="button" class="btn-link" data-go="forgot">نسيت الباسورد؟</button></div>` : ""}
@@ -424,7 +424,7 @@ REBUILT.Gate = (function () {
       <p class="gate__sub">اختار باسورد جديد لحسابك.</p>
       <form class="gate__form" id="reset-form" novalidate>
         ${noticeSlot()}
-        ${field({ name: "password", type: "password", label: "الباسورد الجديد", autocomplete: "new-password", autofocus: true, hint: "6 حروف على الأقل." })}
+        ${field({ name: "password", type: "password", label: "الباسورد الجديد", autocomplete: "new-password", autofocus: true, hint: `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل.` })}
         ${strengthMeter()}
         ${field({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد الجديد", autocomplete: "new-password" })}
         <button type="submit" class="btn btn--primary btn--lg btn--block" id="reset-submit"><span>حفظ الباسورد</span></button>

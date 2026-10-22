@@ -18,6 +18,10 @@ REBUILT.Auth = (function () {
 
   /* ---------------- Validation (shared, synchronous) ---------------- */
 
+  /** Shortest password accepted. Keep in step with Supabase → Authentication → Password → minimum length. */
+  const MIN_PASSWORD_LENGTH = 8;
+  const MIN_PASSWORD_MESSAGE = "الباسورد لازم يكون " + MIN_PASSWORD_LENGTH + " حروف على الأقل.";
+
   function validateEmail(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
   }
@@ -26,7 +30,7 @@ REBUILT.Auth = (function () {
     const errors = {};
     if (!name || !name.trim()) errors.name = "محتاجين اسمك.";
     if (!validateEmail(email)) errors.email = "الإيميل مش صحيح.";
-    if (!password || password.length < 6) errors.password = "الباسورد لازم يكون 6 حروف على الأقل.";
+    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = MIN_PASSWORD_MESSAGE;
     if (password !== confirmPassword) errors.confirmPassword = "الباسورد وتأكيده مش متطابقين.";
     return { valid: Object.keys(errors).length === 0, errors };
   }
@@ -46,7 +50,7 @@ REBUILT.Auth = (function () {
 
   function validateNewPassword({ password, confirmPassword }) {
     const errors = {};
-    if (!password || password.length < 6) errors.password = "الباسورد لازم يكون 6 حروف على الأقل.";
+    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = MIN_PASSWORD_MESSAGE;
     if (password !== confirmPassword) errors.confirmPassword = "الباسورد وتأكيده مش متطابقين.";
     return { valid: Object.keys(errors).length === 0, errors };
   }
@@ -56,7 +60,7 @@ REBUILT.Auth = (function () {
     const p = String(pw || "");
     if (!p) return 0;
     let score = 0;
-    if (p.length >= 6) score++;
+    if (p.length >= MIN_PASSWORD_LENGTH) score++;
     if (p.length >= 10 && /[a-z]/i.test(p) && /\d/.test(p)) score++;
     if (p.length >= 12 && /[^a-z0-9]/i.test(p) && /[A-Z]/.test(p) && /[a-z]/.test(p)) score++;
     return Math.max(score, 1);
@@ -209,6 +213,7 @@ REBUILT.Auth = (function () {
       return "طلبات كتير ورا بعض. استنى دقيقة وجرّب تاني.";
     }
     if (code === "same_password" || msg.includes("different from the old")) return "اختار باسورد مختلف عن القديم.";
+    if (msg.includes("at least") && msg.includes("characters")) return MIN_PASSWORD_MESSAGE;
     if (code === "weak_password" || (msg.includes("password") && (msg.includes("weak") || msg.includes("at least") || msg.includes("characters")))) {
       return "الباسورد مش قوي كفاية. جرّب باسورد أطول.";
     }
@@ -284,6 +289,7 @@ REBUILT.Auth = (function () {
   }
 
   return {
+    MIN_PASSWORD_LENGTH,
     validateEmail,
     validateSignUp,
     validateSignIn,
