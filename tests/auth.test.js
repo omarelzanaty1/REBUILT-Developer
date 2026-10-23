@@ -148,7 +148,10 @@ test("supabaseClient.js uses the REBUILT project URL and only a publishable key"
 
 test("index.html carries the build marker (how a host's live version is identified)", () => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  assert.ok(/<meta name="rebuilt-build" content="[^"]+"\s*\/?>/.test(html), "rebuilt-build meta missing");
+  const build = (html.match(/<meta name="rebuilt-build" content="([^"]+)"\s*\/?>/) || [])[1];
+  const gen = (html.match(/<meta name="generator" content="([^"]+)"\s*\/?>/) || [])[1];
+  assert.ok(build, "rebuilt-build meta missing");
+  assert.ok(gen && gen.includes(build), "generator meta must repeat the build marker (it is the one tools and fetchers reliably show)");
 });
 
 test("canonical redirect target for the Vercel host", () => {
