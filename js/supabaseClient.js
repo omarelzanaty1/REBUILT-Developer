@@ -43,6 +43,9 @@ REBUILT.SupabaseClient = (function () {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
+          // E-mail links come back as  …/#access_token=…&type=recovery  (see auth.js → recovery).
+          // Stated explicitly so a future library default can't silently switch the links to ?code=.
+          flowType: "implicit",
         },
       });
       lastError = null;

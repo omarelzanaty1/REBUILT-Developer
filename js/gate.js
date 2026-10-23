@@ -266,6 +266,69 @@ REBUILT.Gate = (function () {
     else btn.removeAttribute("aria-busy");
   }
 
+  /* ---------- One request at a time, and a pause after "slow down" ----------
+     Every action that talks to Supabase Auth (sign-up, sign-in, "send me a link", "save password")
+     goes through runOnce(): while one is running, a second submit of the same action is ignored, so
+     a double-click, a second Enter or a re-rendered screen can never fire two requests. The keys are
+     module-level, not per button, so leaving and re-entering the screen does not reopen the gate.
+     When the server answers with a rate limit, the action stays disabled with a visible countdown
+     instead of inviting another click (each retry would only count against the limit again). */
+
+  const inFlight = new Set();
+  const holdUntil = {};
+  const holdTimers = {};
+
+  const liveButton = (btn) => (btn && btn.isConnected ? btn : btn && btn.id ? document.getElementById(btn.id) : null);
+  const holdSecondsLeft = (key) => Math.ceil(((holdUntil[key] || 0) - Date.now()) / 1000);
+
+  /** Run `work` unless the same action is already running. Resolves { skipped: true } for a duplicate. */
+  async function runOnce(key, btn, work) {
+    if (inFlight.has(key)) return { skipped: true };
+    inFlight.add(key);
+    setLoading(btn, true);
+    try {
+      return { skipped: false, value: await work() };
+    } finally {
+      inFlight.delete(key);
+      setLoading(liveButton(btn), false);
+    }
+  }
+
+  /** Disable `btn` for the rest of the pause on `key`, with a countdown in its label. */
+  function paintHold(btn, key) {
+    clearInterval(holdTimers[key]);
+    if (!btn) return;
+    const labelEl = btn.querySelector("span") || btn;
+    if (!btn.dataset.baseLabel) btn.dataset.baseLabel = labelEl.textContent;
+    const base = btn.dataset.baseLabel;
+    const tick = () => {
+      if (!btn.isConnected) return clearInterval(holdTimers[key]);
+      const left = holdSecondsLeft(key);
+      if (left > 0) {
+        labelEl.textContent = base + " (" + left + ")";
+        btn.disabled = true;
+      } else {
+        labelEl.textContent = base;
+        btn.disabled = false;
+        clearInterval(holdTimers[key]);
+      }
+    };
+    tick();
+    holdTimers[key] = setInterval(tick, 1000);
+  }
+
+  function startHold(key, seconds, btn) {
+    holdUntil[key] = Date.now() + Math.max(1, Number(seconds) || REBUILT.Auth.DEFAULT_COOLDOWN_SECONDS) * 1000;
+    paintHold(liveButton(btn), key);
+  }
+
+  /** A freshly rendered button picks up whatever is still going on for its action. */
+  function restoreButton(btn, key) {
+    if (!btn) return;
+    if (inFlight.has(key)) setLoading(btn, true);
+    else if (holdSecondsLeft(key) > 0) paintHold(btn, key);
+  }
+
   /* ---------- Welcome / landing ---------- */
 
   function welcomeHTML() {
@@ -367,7 +430,7 @@ REBUILT.Gate = (function () {
         <span class="gate__state-ico">${I().svg("mail", { size: 30 })}</span>
         <h1 class="gate__title">بص في إيميلك</h1>
         <p class="gate__sub">بعتنا رسالة تأكيد على <bdi class="num-ltr">${esc(form.email)}</bdi>. افتحها واضغط على اللينك، وبعدها ارجع هنا وسجّل دخول.</p>
-        <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions.</p>
+        <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions. ولو الإيميل ده مسجّل قبل كده، سجّل دخولك أو اضغط «نسيت الباسورد».</p>
         <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin-after-confirm">أكدت، يلا ندخل</button>
         <button type="button" class="btn btn--ghost btn--block" data-go="signup">استخدم إيميل تاني</button>
       </div>
@@ -630,8 +693,12 @@ REBUILT.Gate = (function () {
       });
     });
 
+    restoreButton(qs("#auth-submit"), authMode === "signup" ? "signup" : "signin");
+
     qs("#auth-form").addEventListener("submit", async (e) => {
       e.preventDefault();
+      const key = authMode === "signup" ? "signup" : "signin";
+      if (inFlight.has(key) || holdSecondsLeft(key) > 0) return; // already running, or paused after a rate limit
       const fd = new FormData(e.target);
       const payload = {
         name: (fd.get("name") || "").toString(),
@@ -649,18 +716,19 @@ REBUILT.Gate = (function () {
       if (!check.valid) return;
 
       const submitBtn = qs("#auth-submit");
-      setLoading(submitBtn, true);
-
-      let result;
-      try {
-        result = isSignup ? await REBUILT.Auth.signUp(state, payload) : await REBUILT.Auth.signIn(state, payload);
-      } catch (err) {
-        result = { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
-      }
-      setLoading(submitBtn, false);
+      const run = await runOnce(key, submitBtn, async () => {
+        try {
+          return isSignup ? await REBUILT.Auth.signUp(state, payload) : await REBUILT.Auth.signIn(state, payload);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const result = run.value;
 
       if (!result.ok) {
         showNotice("danger", esc(result.error));
+        if (result.limited) startHold(key, result.retryAfter, submitBtn); // no point inviting another click right away
         return;
       }
 
@@ -689,8 +757,10 @@ REBUILT.Gate = (function () {
   function bindForgot() {
     const f = qs("#forgot-form");
     if (!f) return;
+    restoreButton(qs("#forgot-submit"), "forgot");
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (inFlight.has("forgot") || holdSecondsLeft("forgot") > 0) return;
       const email = (new FormData(e.target).get("email") || "").toString().trim();
       form.email = email;
       const check = REBUILT.Auth.validateEmailOnly({ email });
@@ -698,15 +768,20 @@ REBUILT.Gate = (function () {
       applyErrors(check.errors);
       if (!check.valid) return;
       const btn = qs("#forgot-submit");
-      setLoading(btn, true);
-      let res;
-      try {
-        res = await REBUILT.Auth.requestPasswordReset(email);
-      } catch (err) {
-        res = { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+      const run = await runOnce("forgot", btn, async () => {
+        try {
+          return await REBUILT.Auth.requestPasswordReset(email);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const res = run.value;
+      if (!res.ok) {
+        showNotice("danger", esc(res.error));
+        if (res.limited) startHold("forgot", res.retryAfter, btn);
+        return;
       }
-      setLoading(btn, false);
-      if (!res.ok) return showNotice("danger", esc(res.error));
       step = "forgot-sent";
       render();
     });
@@ -715,7 +790,7 @@ REBUILT.Gate = (function () {
   function bindForgotSent() {
     const btn = qs("#resend-btn");
     const label = qs("[data-cooldown]");
-    let left = COOLDOWN_SECONDS;
+    let left = Math.max(COOLDOWN_SECONDS, holdSecondsLeft("forgot")); // a rate-limit pause outlasts the usual wait
     const tick = () => {
       if (!btn.isConnected) return clearInterval(cooldownTimer);
       if (left > 0) {
@@ -732,17 +807,25 @@ REBUILT.Gate = (function () {
     cooldownTimer = setInterval(tick, 1000);
 
     btn.addEventListener("click", async () => {
-      setLoading(btn, true);
-      let res;
-      try {
-        res = await REBUILT.Auth.requestPasswordReset(form.email);
-      } catch (err) {
-        res = { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+      if (btn.disabled || inFlight.has("forgot")) return;
+      const run = await runOnce("forgot", btn, async () => {
+        try {
+          return await REBUILT.Auth.requestPasswordReset(form.email);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const res = run.value;
+      if (!res.ok) {
+        showNotice("danger", esc(res.error));
+        if (!res.limited) return;
+        startHold("forgot", res.retryAfter); // same quota as the first request: wait it out, visibly
+        left = Math.max(1, holdSecondsLeft("forgot"));
+      } else {
+        showNotice("success", "بعتناه تاني.");
+        left = COOLDOWN_SECONDS;
       }
-      setLoading(btn, false);
-      if (!res.ok) return showNotice("danger", esc(res.error));
-      showNotice("success", "بعتناه تاني.");
-      left = COOLDOWN_SECONDS;
       clearInterval(cooldownTimer);
       tick();
       cooldownTimer = setInterval(tick, 1000);
@@ -750,8 +833,10 @@ REBUILT.Gate = (function () {
   }
 
   function bindReset() {
+    restoreButton(qs("#reset-submit"), "reset");
     qs("#reset-form").addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (inFlight.has("reset") || holdSecondsLeft("reset") > 0) return;
       const fd = new FormData(e.target);
       const payload = { password: (fd.get("password") || "").toString(), confirmPassword: (fd.get("confirmPassword") || "").toString() };
       const check = REBUILT.Auth.validateNewPassword(payload);
@@ -760,17 +845,19 @@ REBUILT.Gate = (function () {
       if (!check.valid) return;
 
       const btn = qs("#reset-submit");
-      setLoading(btn, true);
-      let res;
-      try {
-        res = await REBUILT.Auth.updatePassword(payload.password);
-      } catch (err) {
-        res = { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
-      }
-      setLoading(btn, false);
+      const run = await runOnce("reset", btn, async () => {
+        try {
+          return await REBUILT.Auth.updatePassword(payload.password);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const res = run.value;
 
       if (!res.ok) {
-        const stale = /session|link|صلاحيته|الجلسة/i.test(res.error || "") || res.code === "otp_expired" || res.code === "session_not_found";
+        if (res.limited) startHold("reset", res.retryAfter, btn);
+        const stale = res.kind === "expired" || res.kind === "no_session" || res.code === "otp_expired" || res.code === "session_not_found" || /session|link|صلاحيته|الجلسة/i.test(res.error || "");
         showNotice("danger", esc(res.error), stale ? `<br/><button type="button" class="btn-link" data-go="forgot">اطلب لينك جديد</button>` : "");
         qsa("#gate-notice [data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
         return;
