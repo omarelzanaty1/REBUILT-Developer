@@ -41,15 +41,70 @@ needed or read: the Supabase URL and the *publishable* key are literals in `js/s
 - Free-plan projects are paused after about a week of inactivity; sign-in and sync fail until it is resumed.
 - REBUILT AI is "Coming Soon": the page makes no model calls and the app needs no AI key.
 
-## E-mail links (sign-up confirmation + password reset) — required Supabase settings
+## Password recovery by e-mailed code — required Supabase settings
 
-The app asks Supabase to send every e-mail link back to **the address it is served from**
-(`js/auth.js → redirectUrlFor`: origin + path, no query/hash — `https://rebuilt-jet.vercel.app/` on Vercel). Supabase
-only honours that address if it is on its allow-list; **otherwise it silently replaces it with the project's Site
-URL, which on a new project is `http://localhost:3000`** — that is exactly how a reset link ends up on
-`localhost:3000` → `ERR_CONNECTION_REFUSED`. No code change can fix that; it is a dashboard setting.
+Recovery no longer uses a link. The whole flow happens inside the site:
 
-Supabase → Authentication → **URL Configuration**:
+1. **Forgot password** → the user types the e-mail → `supabase.auth.resetPasswordForEmail(email)` (no redirect target is sent).
+2. Supabase e-mails a short numeric code (its "Reset Password" template shows `{{ .Token }}`).
+3. **Code screen** (same page) → `supabase.auth.verifyOtp({ email, token, type: "recovery" })`. Supabase checks the code
+   (right / expired / already used / replaced by a newer one). Only a success gives a session and opens step 4.
+4. **New password** → `supabase.auth.updateUser({ password })` → success → the user signs in with the new password.
+
+The app never creates, stores or compares a code — Supabase Auth does (it keeps only a hash). An unknown e-mail
+gets exactly the same screens and answers as a registered one, so the form can't be used to find out who has an account.
+
+### 1. Edit the e-mail template (required — the app cannot do this, and cannot detect it)
+
+Supabase → **Authentication → Emails → Templates → "Reset Password"** (called "Reset password" / "Recovery").
+The template that ships by default contains `{{ .ConfirmationURL }}` (a link): **replace it so the body shows
+`{{ .Token }}` and contains no `{{ .ConfirmationURL }}`**. Until this is done the e-mail still carries the old link
+while the app asks for a code. Suggested subject and body:
+
+Subject:
+
+```
+كود استعادة الباسورد — REBUILT
+```
+
+Body (HTML):
+
+```html
+<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#201F19;text-align:right">
+  <h2 style="margin:0 0 12px">استعادة الباسورد</h2>
+  <p style="margin:0 0 16px;line-height:1.7">اكتب الكود ده في صفحة REBUILT عشان تختار باسورد جديد:</p>
+  <p dir="ltr" style="margin:0 0 16px;text-align:center;font-size:34px;font-weight:700;letter-spacing:8px;background:#FFE600;border-radius:12px;padding:14px 0">{{ .Token }}</p>
+  <p style="margin:0 0 8px;line-height:1.7">الكود بيشتغل مرة واحدة ولمدة قصيرة، وأي كود جديد بتطلبه بيلغي القديم.</p>
+  <p style="margin:0;color:#666;line-height:1.7">لو انت ماطلبتش استعادة الباسورد، تجاهل الرسالة — حسابك زي ما هو ومحدش يقدر يغيّره من غير الكود.</p>
+</div>
+```
+
+### 2. Code length and lifetime
+
+Supabase → **Authentication → Providers → Email** (label may read "Sign In / Providers" in newer dashboards):
+
+| Setting | Value |
+|---|---|
+| **Email OTP Expiration** | `600` seconds (10 minutes) recommended — Supabase advises at most 3600 (max 86400) |
+| **Email OTP Length** | `6` (the app accepts 6 to 10 digits, so a different length still works) |
+
+### 3. Sending limits (Supabase's, authoritative)
+
+Supabase's built-in mail sender has a very small shared hourly quota and a per-address wait of about 60 s; beyond
+that it answers `429`. The app says which limit it hit (project e-mail quota vs. "wait N seconds" vs. general
+request rate) and pauses the button. For real users configure a custom SMTP provider in Authentication →
+**SMTP Settings** (then the hourly limit becomes adjustable under Authentication → Rate Limits).
+
+On top of those, the app keeps its own per-tab limits (`js/auth.js → RECOVERY_LIMITS`): **60 s** between two code
+requests, **5 code requests per hour**, **5 wrong codes per request** (then a new code must be requested). They
+survive a refresh (sessionStorage) and are defence in depth only — they don't replace Supabase's checks.
+
+### What stays link-based: the sign-up confirmation e-mail
+
+Confirming a new account still uses a link, so Supabase → Authentication → **URL Configuration** still matters
+(otherwise Supabase replaces the app's address with its Site URL, which on a new project is
+`http://localhost:3000` — that is how a link used to end on `ERR_CONNECTION_REFUSED`). Password recovery no longer
+depends on it.
 
 | Setting | Value |
 |---|---|
@@ -57,30 +112,25 @@ Supabase → Authentication → **URL Configuration**:
 | **Redirect URLs** (add each) | `https://rebuilt-jet.vercel.app/` and, while GitHub Pages is also used, `https://omarelzanaty1.github.io/rebuilt0.4/` |
 
 Do not keep `http://localhost:3000` as the Site URL. A new host or a custom domain = one more entry in Redirect URLs.
-The password-reset screen is not a separate page: the link returns to `/` carrying `#access_token=…&type=recovery`,
-and the app shows the "new password" screen. The one address above is therefore the only path to allow.
-Recovery and confirmation links are **one-time**: after fixing the settings, request a **new** link — old ones are
-spent (a second click shows the "link not working" screen).
+The sign-up link is **one-time**: after fixing the settings, sign up / resend again — an old link shows the
+"link not working" screen.
 
 Also in Supabase → Authentication: **Confirm email** ON; Email provider enabled.
 
-**Sending limits.** Supabase's built-in mail sender has a very small shared hourly quota and a per-address wait
-(about 60 s). Beyond that Supabase answers `429` — the app now says which one it is (project e-mail quota vs. "wait N
-seconds" vs. general request rate) and pauses the button instead of inviting more clicks. For real users configure
-a custom SMTP provider in Authentication → **SMTP Settings** (then the hourly limit becomes adjustable under
-Authentication → Rate Limits).
+### If something goes wrong
 
-### If a link opens `localhost:3000` again
-
-1. Supabase → Logs → Edge: the `/auth/v1/recover` request shows `redirect_to=<the address the app sent>`; the e-mail's
-   `/auth/v1/verify?…&redirect_to=…` shows what Supabase actually put in the link. If they differ, that address is
-   missing from Redirect URLs (or the Site URL is wrong).
-2. Fix URL Configuration as above, then request a new link.
+| Symptom | Cause / check |
+|---|---|
+| The e-mail has a link instead of a code | The "Reset Password" template still contains `{{ .ConfirmationURL }}` — step 1. |
+| A correct code is refused as "wrong or expired" | It expired (Email OTP Expiration), was replaced by a newer request, or was already used. Request a new code and use only the latest e-mail. |
+| "Wait N seconds" / "too many e-mails" | Supabase's per-address wait or the project's hourly e-mail quota — see sending limits; custom SMTP lifts the quota. |
+| Supabase → Logs → Auth | `POST /auth/v1/recover` = a code was requested (there is **no** `redirect_to`); `POST /auth/v1/verify` with `type=recovery` = a code was typed (`403 otp_expired` = wrong/expired); `PUT /auth/v1/user` = the password was changed. |
 
 ## Which version is live?
 
-`index.html` carries `<meta name="rebuilt-build" content="…">`. View the page source of the host in question (or
-fetch its root page): the value shows which release that host is serving, independent of what GitHub shows.
+`index.html` carries `<meta name="rebuilt-build" content="…">` (also exposed as `<meta name="generator">`). View the
+page source of the host in question (or fetch its root page): the value shows which release that host is serving,
+independent of what GitHub shows. The code-based recovery is build `0.4.2 otp-reset`.
 
 ## Tests
 
@@ -89,10 +139,12 @@ node tests/auth.test.js
 ```
 
 No dependencies, no network. It fails if any shipped file points at a local address (`localhost:3000` included) or
-carries a secret key, if the e-mail redirect target is not the canonical published address
-(`https://omarelzanaty1.github.io/rebuilt0.4/`, `https://rebuilt-jet.vercel.app/` for the hosts above), if sign-up or
-reset stop sending it, or if different Supabase errors collapse into one message again. It cannot check the Supabase
-dashboard — that is the table above.
+carries a secret key; if the sign-up redirect target is not the canonical published address
+(`https://omarelzanaty1.github.io/rebuilt0.4/`, `https://rebuilt-jet.vercel.app/` for the hosts above); if password
+recovery starts sending a redirect target again or stops using `resetPasswordForEmail → verifyOtp(type "recovery") →
+updateUser`; if a malformed code reaches Supabase; if the cooldown / hourly / wrong-code limits stop holding; or if
+different Supabase errors collapse into one message again. It cannot check the Supabase dashboard (the template and
+settings above) and does not talk to Supabase.
 
 ## Fonts
 

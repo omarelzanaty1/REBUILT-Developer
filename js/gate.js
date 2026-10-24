@@ -3,8 +3,8 @@
    Everything before the app itself:
 
      welcome → auth (sign up / sign in) → [confirm-email] → onboarding
-     forgot → forgot-sent                (password recovery, request)
-     reset  → reset-done | reset-expired (password recovery, the e-mailed link)
+     forgot → otp → reset → reset-done   (password recovery by an e-mailed code: request, type the code, new password)
+     reset-expired                       (a legacy recovery link that is no longer valid)
 
    Runs in #gate-root in front of the app shell and hands control back
    via onComplete() once the user has an account and has finished
@@ -49,7 +49,8 @@ REBUILT.Gate = (function () {
       addPlaceholder: "ضيف هدفك الخاص",
     },
   };
-  const COOLDOWN_SECONDS = 30;
+  /** Wait before another recovery code may be requested (matches Supabase's one e-mail per address per minute). */
+  const cooldownSeconds = () => REBUILT.Auth.RECOVERY_LIMITS.resendCooldownSeconds;
 
   let state, onComplete, ctx, step, authMode, draft, form, cooldownTimer;
 
@@ -145,7 +146,7 @@ REBUILT.Gate = (function () {
       case "auth": return authHTML();
       case "confirm-email": return confirmEmailHTML();
       case "forgot": return forgotHTML();
-      case "forgot-sent": return forgotSentHTML();
+      case "otp": return otpHTML();
       case "reset": return resetHTML();
       case "reset-done": return resetDoneHTML();
       case "reset-expired": return resetExpiredHTML();
@@ -245,7 +246,7 @@ REBUILT.Gate = (function () {
   }
 
   function applyErrors(errors) {
-    ["name", "email", "password", "confirmPassword"].forEach((n) => setFieldError(n, errors[n] || ""));
+    ["name", "email", "password", "confirmPassword", "code"].forEach((n) => setFieldError(n, errors[n] || ""));
     const firstBad = qs(".field.is-invalid input");
     if (firstBad) firstBad.focus();
   }
@@ -280,6 +281,8 @@ REBUILT.Gate = (function () {
 
   const liveButton = (btn) => (btn && btn.isConnected ? btn : btn && btn.id ? document.getElementById(btn.id) : null);
   const holdSecondsLeft = (key) => Math.ceil(((holdUntil[key] || 0) - Date.now()) / 1000);
+  /** Minutes for long waits (the hourly cap), plain seconds otherwise. */
+  const fmtWait = (secs) => (secs >= 120 ? Math.ceil(secs / 60) + " د" : String(secs));
 
   /** Run `work` unless the same action is already running. Resolves { skipped: true } for a duplicate. */
   async function runOnce(key, btn, work) {
@@ -305,7 +308,7 @@ REBUILT.Gate = (function () {
       if (!btn.isConnected) return clearInterval(holdTimers[key]);
       const left = holdSecondsLeft(key);
       if (left > 0) {
-        labelEl.textContent = base + " (" + left + ")";
+        labelEl.textContent = base + " (" + fmtWait(left) + ")";
         btn.disabled = true;
       } else {
         labelEl.textContent = base;
@@ -454,43 +457,43 @@ REBUILT.Gate = (function () {
     return frame(`
       <span class="gate__state-ico gate__state-ico--left">${I().svg("key", { size: 26 })}</span>
       <h1 class="gate__title">نسيت الباسورد؟</h1>
-      <p class="gate__sub">اكتب إيميلك وهنبعتلك لينك تحط بيه باسورد جديد.</p>
+      <p class="gate__sub">اكتب إيميلك وهنبعتلك كود تحقق تكتبه هنا في الموقع وتختار بيه باسورد جديد.</p>
       <form class="gate__form" id="forgot-form" novalidate>
         ${noticeSlot()}
         ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="forgot-submit"><span>ابعتلي اللينك</span></button>
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="forgot-submit"><span>ابعتلي الكود</span></button>
       </form>
     `, { back: "signin", backLabel: "رجوع لتسجيل الدخول" });
   }
 
-  function forgotSentHTML() {
+  /** Step 2 of recovery: type the code that was e-mailed. The new-password screen only opens once Supabase accepts it. */
+  function otpHTML() {
     return frame(`
-      <div class="gate__state">
-        <span class="gate__state-ico">${I().svg("mail", { size: 30 })}</span>
-        <h1 class="gate__title">اتبعت اللينك</h1>
-        <p class="gate__sub">لو <bdi class="num-ltr">${esc(form.email)}</bdi> مسجّل عندنا، هتوصلك رسالة فيها لينك لتغيير الباسورد خلال دقايق.</p>
-        <ul class="gate__tips">
-          <li>${I().svg("check", { size: 15, stroke: 2.4 })}بص في الـ Spam أو الـ Promotions.</li>
-          <li>${I().svg("check", { size: 15, stroke: 2.4 })}اللينك صالح لفترة قصيرة وبيتستخدم مرة واحدة.</li>
-        </ul>
+      <span class="gate__state-ico gate__state-ico--left">${I().svg("mail", { size: 26 })}</span>
+      <h1 class="gate__title">اكتب الكود</h1>
+      <p class="gate__sub">لو <bdi class="num-ltr">${esc(form.email)}</bdi> مسجّل عندنا، هتوصلك رسالة فيها كود تحقق خلال دقايق. اكتبه هنا.</p>
+      <form class="gate__form" id="otp-form" novalidate>
         ${noticeSlot()}
-        <button type="button" class="btn btn--secondary btn--block" id="resend-btn" disabled>ابعت تاني <span class="num" data-cooldown></span></button>
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
-      </div>
-    `);
+        ${field({ name: "code", label: "كود التحقق", autocomplete: "one-time-code", inputmode: "numeric", ltr: true, maxlength: 12, autofocus: true, hint: "أرقام بس. بص في الـ Spam أو الـ Promotions لو مالقتهوش. الكود بيشتغل مرة واحدة ولمدة قصيرة." })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="otp-submit"><span>تأكيد الكود</span></button>
+        <button type="button" class="btn btn--secondary btn--block" id="resend-btn" disabled>ابعت كود جديد <span class="num" data-cooldown></span></button>
+      </form>
+      <p class="gate__switch"><button type="button" class="btn-link" data-go="forgot">غيّر الإيميل</button></p>
+    `, { back: "forgot", backLabel: "رجوع" });
   }
 
   function resetHTML() {
     return frame(`
       <span class="gate__state-ico gate__state-ico--left">${I().svg("lock", { size: 26 })}</span>
       <h1 class="gate__title">باسورد جديد</h1>
-      <p class="gate__sub">اختار باسورد جديد لحسابك.</p>
+      <p class="gate__sub">الكود اتأكد. اختار باسورد جديد لحسابك.</p>
       <form class="gate__form" id="reset-form" novalidate>
         ${noticeSlot()}
         ${field({ name: "password", type: "password", label: "الباسورد الجديد", autocomplete: "new-password", autofocus: true, hint: `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل.` })}
         ${strengthMeter()}
         ${field({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد الجديد", autocomplete: "new-password" })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="reset-submit"><span>حفظ الباسورد</span></button>
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="reset-submit"><span>تغيير الباسورد</span></button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="cancel-reset">إلغاء</button>
       </form>
     `);
   }
@@ -500,7 +503,7 @@ REBUILT.Gate = (function () {
       <div class="gate__state">
         <span class="gate__state-ico gate__state-ico--ok">${I().svg("checkCircle", { size: 32 })}</span>
         <h1 class="gate__title">اتغيّر الباسورد</h1>
-        <p class="gate__sub">تمام. باسوردك الجديد اشتغل وإنت دلوقتي داخل حسابك.</p>
+        <p class="gate__sub">تمام. باسوردك الجديد اشتغل، وتقدر تدخل بيه في أي وقت. إنت دلوقتي داخل حسابك.</p>
         <button type="button" class="btn btn--primary btn--lg btn--block" data-go="continue" data-autofocus>كمّل لـ REBUILT</button>
       </div>
     `);
@@ -511,8 +514,8 @@ REBUILT.Gate = (function () {
       <div class="gate__state">
         <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
         <h1 class="gate__title">اللينك مش شغال</h1>
-        <p class="gate__sub">اللينك ده انتهت صلاحيته أو اتستخدم قبل كده. اطلب لينك جديد وهيوصلك في ثواني.</p>
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="forgot" data-autofocus>اطلب لينك جديد</button>
+        <p class="gate__sub">اللينك ده انتهت صلاحيته أو اتستخدم قبل كده. استعادة الباسورد بقت بكود بيوصلك على الإيميل وبتكتبه هنا في الموقع، فاطلب كود جديد.</p>
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="forgot" data-autofocus>اطلب كود جديد</button>
         <button type="button" class="btn btn--ghost btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
       </div>
     `);
@@ -640,7 +643,7 @@ REBUILT.Gate = (function () {
 
     if (step === "auth") bindAuth();
     if (step === "forgot") bindForgot();
-    if (step === "forgot-sent") bindForgotSent();
+    if (step === "otp") bindOtp();
     if (step === "reset") bindReset();
     if (step === "onboard-basic") bindBasic();
     if (TAG_STEPS[step]) bindTags(TAG_STEPS[step]);
@@ -676,6 +679,7 @@ REBUILT.Gate = (function () {
         step = "forgot";
         return render();
       case "continue": return continueAfterAuth();
+      case "cancel-reset": return REBUILT.Actions.signOut();
       case "next": return handleNext();
       case "back": return prevOnboardStep();
       default: return;
@@ -782,33 +786,65 @@ REBUILT.Gate = (function () {
         if (res.limited) startHold("forgot", res.retryAfter, btn);
         return;
       }
-      step = "forgot-sent";
+      step = "otp";
       render();
     });
   }
 
-  function bindForgotSent() {
-    const btn = qs("#resend-btn");
+  function bindOtp() {
+    const f = qs("#otp-form");
+    if (!f) return;
+    const submit = qs("#otp-submit");
+    const input = qs("#f-code");
+    const resend = qs("#resend-btn");
     const label = qs("[data-cooldown]");
-    let left = Math.max(COOLDOWN_SECONDS, holdSecondsLeft("forgot")); // a rate-limit pause outlasts the usual wait
+    const guard = REBUILT.Auth.Recovery;
+    restoreButton(submit, "otp");
+
+    // Only digits go into the box; pasted "483 209", "483-209" or Arabic-Indic digits are cleaned up as they arrive.
+    input.addEventListener("input", () => {
+      const clean = REBUILT.Auth.normalizeCode(input.value);
+      if (clean !== input.value) input.value = clean;
+    });
+
+    const lockCode = (on) => {
+      input.disabled = on;
+      submit.disabled = on;
+      if (!on) submit.removeAttribute("aria-busy");
+    };
+    if (guard.attemptsLeft() <= 0) {
+      lockCode(true);
+      showNotice("danger", "جرّبت كذا مرة والكود غلط. اطلب كود جديد وجرّب بيه.");
+    }
+
+    // ---- resend: its own wait, the longer of the app's cooldown and any server-side pause ----
+    const initialWait = () => {
+      const g = guard.canSend(form.email);
+      return Math.max(g.ok ? 0 : g.waitSeconds, holdSecondsLeft("forgot"));
+    };
+    let left = initialWait();
     const tick = () => {
-      if (!btn.isConnected) return clearInterval(cooldownTimer);
+      if (!resend.isConnected) return clearInterval(cooldownTimer);
       if (left > 0) {
-        label.textContent = `(${left})`;
-        btn.disabled = true;
+        label.textContent = `(${fmtWait(left)})`;
+        resend.disabled = true;
         left -= 1;
       } else {
         label.textContent = "";
-        btn.disabled = false;
+        resend.disabled = false;
         clearInterval(cooldownTimer);
       }
     };
-    tick();
-    cooldownTimer = setInterval(tick, 1000);
+    const restartTimer = () => {
+      clearInterval(cooldownTimer);
+      tick();
+      cooldownTimer = setInterval(tick, 1000);
+    };
+    restartTimer();
 
-    btn.addEventListener("click", async () => {
-      if (btn.disabled || inFlight.has("forgot")) return;
-      const run = await runOnce("forgot", btn, async () => {
+    resend.addEventListener("click", async () => {
+      if (resend.disabled || inFlight.has("forgot")) return;
+      const run = await runOnce("forgot", resend, async () => {
         try {
           return await REBUILT.Auth.requestPasswordReset(form.email);
         } catch (err) {
@@ -819,16 +855,56 @@ REBUILT.Gate = (function () {
       const res = run.value;
       if (!res.ok) {
         showNotice("danger", esc(res.error));
-        if (!res.limited) return;
-        startHold("forgot", res.retryAfter); // same quota as the first request: wait it out, visibly
-        left = Math.max(1, holdSecondsLeft("forgot"));
-      } else {
-        showNotice("success", "بعتناه تاني.");
-        left = COOLDOWN_SECONDS;
+        if (res.limited) {
+          if (res.code !== "client_rate_limit") startHold("forgot", res.retryAfter); // a server-side pause is remembered across screens
+          left = Math.max(1, Number(res.retryAfter) || REBUILT.Auth.DEFAULT_COOLDOWN_SECONDS);
+          restartTimer();
+        }
+        return;
       }
-      clearInterval(cooldownTimer);
-      tick();
-      cooldownTimer = setInterval(tick, 1000);
+      // A fresh code replaces the old one and comes with a fresh set of tries.
+      lockCode(false);
+      input.value = "";
+      input.focus();
+      showNotice("success", "بعتنالك كود جديد. الكود القديم بطّل يشتغل.");
+      left = cooldownSeconds();
+      restartTimer();
+    });
+
+    // ---- verify ----
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (inFlight.has("otp") || holdSecondsLeft("otp") > 0 || submit.disabled) return;
+      const check = REBUILT.Auth.validateOtpCode({ code: input.value });
+      showNotice("", "");
+      applyErrors(check.errors);
+      if (!check.valid) return;
+
+      const run = await runOnce("otp", submit, async () => {
+        try {
+          return await REBUILT.Auth.verifyRecoveryCode(form.email, check.code);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const res = run.value;
+
+      if (res.ok) {
+        // Supabase accepted the code: only now does the new-password screen open.
+        clearInterval(cooldownTimer);
+        step = "reset";
+        render();
+        return;
+      }
+      showNotice("danger", esc(res.error));
+      if (res.exhausted) {
+        lockCode(true);
+        return;
+      }
+      if (res.limited) startHold("otp", res.retryAfter, submit);
+      input.focus();
+      input.select();
     });
   }
 
@@ -858,7 +934,7 @@ REBUILT.Gate = (function () {
       if (!res.ok) {
         if (res.limited) startHold("reset", res.retryAfter, btn);
         const stale = res.kind === "expired" || res.kind === "no_session" || res.code === "otp_expired" || res.code === "session_not_found" || /session|link|صلاحيته|الجلسة/i.test(res.error || "");
-        showNotice("danger", esc(res.error), stale ? `<br/><button type="button" class="btn-link" data-go="forgot">اطلب لينك جديد</button>` : "");
+        showNotice("danger", esc(res.error), stale ? `<br/><button type="button" class="btn-link" data-go="forgot">اطلب كود جديد</button>` : "");
         qsa("#gate-notice [data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
         return;
       }

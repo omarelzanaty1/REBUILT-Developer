@@ -55,6 +55,123 @@ REBUILT.Auth = (function () {
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
+  /* ---------------- Recovery by e-mailed code (OTP) ----------------
+     Password recovery no longer depends on a link. Supabase e-mails a short numeric code
+     (its "Reset Password" template shows {{ .Token }}), the user types it here, and
+     verifyOtp({ type: "recovery" }) turns it into a session that may change the password.
+     The code is created, stored (hashed) and checked by Supabase Auth — never by this app. */
+
+  /** Shortest / longest code accepted. Supabase → Authentication → Email OTP Length (6 by default, up to 10). */
+  const CODE_MIN_LENGTH = 6;
+  const CODE_MAX_LENGTH = 10;
+
+  /** Digits only: drops spaces and dashes and maps Arabic-Indic digits to 0-9, so "٤٨٣ ٢٠٩" and "483-209" both work. */
+  function normalizeCode(raw) {
+    return String(raw == null ? "" : raw)
+      .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+      .replace(/\D/g, "");
+  }
+
+  function validateOtpCode({ code }) {
+    const errors = {};
+    const normalized = normalizeCode(code);
+    if (normalized.length < CODE_MIN_LENGTH || normalized.length > CODE_MAX_LENGTH) {
+      errors.code = "اكتب الكود كامل زي ما وصلك على الإيميل (أرقام بس).";
+    }
+    return { valid: Object.keys(errors).length === 0, errors, code: normalized };
+  }
+
+  /** Arabic count phrase for "attempts" (1 → محاولة واحدة، 2 → محاولتين، 3–10 → N محاولات). */
+  function attemptsPhrase(n) {
+    if (n === 1) return "محاولة واحدة";
+    if (n === 2) return "محاولتين";
+    return n + (n >= 3 && n <= 10 ? " محاولات" : " محاولة");
+  }
+
+  /** Limits the app itself applies on top of Supabase's own (which stay authoritative). */
+  const RECOVERY_LIMITS = {
+    resendCooldownSeconds: 60,   // same as Supabase's per-address wait between two e-mails
+    sendsPerWindow: 5,           // codes requested from one browser tab …
+    windowSeconds: 3600,         // … per hour
+    wrongCodesPerRequest: 5,     // wrong tries before the user must ask for a fresh code
+  };
+
+  /**
+   * Per-tab counters for "ask for a code" and "type a wrong code". They stop a user (or a loop) from
+   * hammering the e-mail sender or guessing, and survive a refresh through sessionStorage. They are
+   * defence in depth and UX only: the enforcing limits are Supabase's (e-mail send quota, one e-mail per
+   * address per minute, verification rate limit, code expiry). Stores no e-mail address, only a short hash.
+   */
+  function createRecoveryGuard(store, clock, limits) {
+    const L = limits || RECOVERY_LIMITS;
+    const KEY = "rebuilt.recoveryGuard";
+    const now = () => (clock ? clock() : Date.now());
+    const tag = (email) => {
+      let h = 5381;
+      const e = String(email || "").trim().toLowerCase();
+      for (let i = 0; i < e.length; i++) h = ((h << 5) + h + e.charCodeAt(i)) | 0;
+      return (h >>> 0).toString(36);
+    };
+    function read() {
+      try {
+        const v = JSON.parse(store.getItem(KEY) || "null");
+        if (v && Array.isArray(v.sends)) return { sends: v.sends.filter((x) => x && Number.isFinite(x.t)), wrong: Number(v.wrong) || 0 };
+      } catch (err) { /* unreadable → start clean */ }
+      return { sends: [], wrong: 0 };
+    }
+    function write(state) {
+      try { store.setItem(KEY, JSON.stringify(state)); } catch (err) { /* storage unavailable: counters then live only until reload */ }
+    }
+    const recent = (state, t) => state.sends.filter((x) => t - x.t < L.windowSeconds * 1000);
+    return {
+      /** May a code be requested for this address now? → { ok, reason?, waitSeconds } */
+      canSend(email) {
+        const t = now();
+        const mine = recent(read(), t);
+        const last = mine.filter((x) => x.e === tag(email)).reduce((m, x) => Math.max(m, x.t), 0);
+        const cool = last ? Math.ceil((last + L.resendCooldownSeconds * 1000 - t) / 1000) : 0;
+        if (cool > 0) return { ok: false, reason: "cooldown", waitSeconds: cool };
+        if (mine.length >= L.sendsPerWindow) {
+          const oldest = mine.reduce((m, x) => Math.min(m, x.t), Infinity);
+          return { ok: false, reason: "quota", waitSeconds: Math.max(1, Math.ceil((oldest + L.windowSeconds * 1000 - t) / 1000)) };
+        }
+        return { ok: true, waitSeconds: 0 };
+      },
+      /** A code was sent: start its cooldown and give the new code a fresh set of tries. */
+      noteSent(email) {
+        const t = now();
+        const state = read();
+        state.sends = recent(state, t).concat({ t, e: tag(email) });
+        state.wrong = 0;
+        write(state);
+      },
+      attemptsLeft() { return Math.max(0, L.wrongCodesPerRequest - read().wrong); },
+      /** A wrong/expired code was typed → tries left. */
+      noteWrong() {
+        const state = read();
+        state.wrong += 1;
+        write(state);
+        return Math.max(0, L.wrongCodesPerRequest - state.wrong);
+      },
+      /** The code worked: nothing left to count. */
+      clearWrong() {
+        const state = read();
+        state.wrong = 0;
+        write(state);
+      },
+    };
+  }
+
+  const memoryStore = (function () {
+    const m = {};
+    return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); } };
+  })();
+  function tabStore() {
+    try { return window.sessionStorage || memoryStore; } catch (err) { return memoryStore; }
+  }
+  const Recovery = createRecoveryGuard(tabStore());
+
   /** 0 (empty) … 3 (strong). A hint for the UI only — the server enforces the real rules. */
   function passwordStrength(pw) {
     const p = String(pw || "");
@@ -73,6 +190,19 @@ REBUILT.Auth = (function () {
      window.__REBUILT_BOOT_URL first — that snapshot is how we know the visit is a
      recovery visit. Tokens are never read, logged or stored here. */
 
+  /** Set once a recovery code has been verified, until a new password is saved: a refresh in between must
+      land on "choose a new password" again, not inside the app on a session that never proved a new password. */
+  const PENDING_KEY = "rebuilt.resetPending";
+  function readPending() {
+    try { return window.sessionStorage.getItem(PENDING_KEY) === "1"; } catch (err) { return false; }
+  }
+  function writePending(on) {
+    try {
+      if (on) window.sessionStorage.setItem(PENDING_KEY, "1");
+      else window.sessionStorage.removeItem(PENDING_KEY);
+    } catch (err) { /* storage unavailable: the flag then lives only in memory */ }
+  }
+
   const recovery = (function () {
     const boot = window.__REBUILT_BOOT_URL || { hash: "", search: "" };
     const h = new URLSearchParams(String(boot.hash || "").replace(/^#/, ""));
@@ -81,7 +211,7 @@ REBUILT.Auth = (function () {
     const errName = h.get("error") || q.get("error") || "";
     const hasError = !!(errCode || errName) && (h.get("type") === "recovery" || /otp|expired|access_denied|recovery/i.test(errCode + errName + (h.get("error_description") || "")));
     return {
-      intent: h.get("type") === "recovery" && !!h.get("access_token"),
+      intent: (h.get("type") === "recovery" && !!h.get("access_token")) || readPending(),
       error: hasError ? { code: errCode || errName } : null,
     };
   })();
@@ -93,9 +223,17 @@ REBUILT.Auth = (function () {
     return { status: "none" };
   }
 
+  /** The code was verified: from now on "choose a new password" is the only place this session may go. */
+  function markResetPending() {
+    recovery.intent = true;
+    recovery.error = null;
+    writePending(true);
+  }
+
   function clearRecovery() {
     recovery.intent = false;
     recovery.error = null;
+    writePending(false);
     try {
       if (window.location.hash && /type=recovery|error_code|access_token|error=/.test(window.location.hash)) {
         history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -193,15 +331,50 @@ REBUILT.Auth = (function () {
     async signOut(state) {
       const sb = REBUILT.SupabaseClient.get();
       await sb.auth.signOut();
+      clearRecovery();
       state.meta.hasLocalAccount = false;
     },
 
-    /** Always reports success for a well-formed address, so it can't be used to discover who has an account. */
+    /**
+     * Ask Supabase to e-mail a recovery CODE (its "Reset Password" template must show {{ .Token }}).
+     * No redirect target is sent: nothing in this flow opens a link. Reports success for any well-formed
+     * address, known or not, so the answer can't be used to discover who has an account.
+     */
     async requestPasswordReset(email) {
+      const gate = Recovery.canSend(email);
+      if (!gate.ok) return clientLimit(gate);
       const sb = REBUILT.SupabaseClient.get();
-      const redirect = appRedirectUrl();
-      const { error } = await sb.auth.resetPasswordForEmail(email.trim(), redirect ? { redirectTo: redirect } : undefined);
+      const { error } = await sb.auth.resetPasswordForEmail(email.trim());
       if (error) return failure(error);
+      Recovery.noteSent(email);
+      return { ok: true };
+    },
+
+    /**
+     * Exchange the e-mailed code for a recovery session. Supabase decides whether the code is right,
+     * expired or already used; the app only counts wrong tries (a fresh code is needed after too many).
+     */
+    async verifyRecoveryCode(email, code) {
+      const check = validateOtpCode({ code });
+      if (!check.valid) return { ok: false, kind: "invalid_format", error: check.errors.code, code: "invalid_format", limited: false, retryAfter: 0 };
+      if (Recovery.attemptsLeft() <= 0) return exhausted();
+
+      const sb = REBUILT.SupabaseClient.get();
+      const { data, error } = await sb.auth.verifyOtp({ email: email.trim(), token: check.code, type: "recovery" });
+
+      if (error || !data || !data.session) {
+        const res = failure(error || { code: "otp_expired", message: "Token has expired or is invalid" }, "code");
+        if (res.kind === "code_invalid") {
+          const left = Recovery.noteWrong();
+          if (left <= 0) return exhausted();
+          res.attemptsLeft = left;
+          res.error = res.error + " فاضلك " + attemptsPhrase(left) + ".";
+        }
+        return res;
+      }
+
+      Recovery.clearWrong();
+      markResetPending();
       return { ok: true };
     },
 
@@ -215,7 +388,11 @@ REBUILT.Auth = (function () {
     async getSession(state) {
       const sb = REBUILT.SupabaseClient.get();
       const { data } = await sb.auth.getSession();
-      if (!data.session) return { loggedIn: false, localOnly: false };
+      if (!data.session) {
+        // No session, so nothing can be "pending": drop a leftover reset marker instead of showing a form that cannot save.
+        if (recovery.intent) clearRecovery();
+        return { loggedIn: false, localOnly: false };
+      }
       return {
         loggedIn: true,
         userId: data.session.user.id,
@@ -239,7 +416,7 @@ REBUILT.Auth = (function () {
    *   email_not_authorized / email_send_failed   e-mail provider not set up for this recipient / failed
    * Returns { kind, code, status, text, limited?, retryAfter? }. Pure; never touches the DOM.
    */
-  function classifyError(error) {
+  function classifyError(error, context) {
     const e = error || {};
     const msg = String(e.message || "").toLowerCase();
     const code = String(e.code || e.error_code || "").toLowerCase();
@@ -257,6 +434,11 @@ REBUILT.Auth = (function () {
     }
     if (code === "over_request_rate_limit" || status === 429 || msg.includes("rate limit") || msg.includes("too many") || msg.includes("security purposes")) {
       return make("rate", "طلبات كتير ورا بعض. استنى دقيقة وجرّب تاني.", { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
+    }
+
+    // ---- a recovery code that was typed (wrong, expired, already used or replaced by a newer one) ----
+    if (context === "code" && (code === "otp_expired" || code === "otp_disabled" || msg.includes("expired") || msg.includes("invalid") || status === 403)) {
+      return make("code_invalid", "الكود غلط أو انتهت صلاحيته.");
     }
 
     // ---- e-mail provider problems ----
@@ -282,8 +464,8 @@ REBUILT.Auth = (function () {
     if (code === "weak_password" || (msg.includes("password") && (msg.includes("weak") || msg.includes("at least") || msg.includes("characters")))) {
       return make("weak_password", "الباسورد مش قوي كفاية. جرّب باسورد أطول.");
     }
-    if (code === "otp_expired" || msg.includes("expired")) return make("expired", "اللينك ده انتهت صلاحيته. اطلب لينك جديد.");
-    if (msg.includes("auth session missing") || code === "session_not_found") return make("no_session", "الجلسة انتهت. اطلب لينك جديد لاستعادة الباسورد.");
+    if (code === "otp_expired" || msg.includes("expired")) return make("expired", "اللينك أو الكود انتهت صلاحيته. اطلب واحد جديد.");
+    if (msg.includes("auth session missing") || code === "session_not_found") return make("no_session", "الجلسة انتهت. اطلب كود جديد لاستعادة الباسورد.");
     if (code === "invalid_credentials" || msg.includes("invalid login credentials")) return make("credentials", "الإيميل أو الباسورد غلط.");
     if (code === "email_not_confirmed" || msg.includes("email not confirmed")) return make("not_confirmed", "لسه مأكدتش الإيميل. بص في بريدك على رسالة التأكيد.");
 
@@ -298,13 +480,34 @@ REBUILT.Auth = (function () {
   }
 
   /** The Egyptian-Arabic sentence for an auth error. */
-  function translateError(error) {
-    return classifyError(error).text;
+  function translateError(error, context) {
+    return classifyError(error, context).text;
+  }
+
+  /** The app's own pause (cooldown / hourly cap) in the same shape as a server rate-limit result. */
+  function clientLimit(gate) {
+    const mins = Math.ceil(gate.waitSeconds / 60);
+    const text = gate.reason === "cooldown"
+      ? "استنى " + gate.waitSeconds + " ثانية وبعدين اطلب كود تاني."
+      : "طلبت أكواد كتير. جرّب تاني بعد حوالي " + mins + " دقيقة.";
+    return { ok: false, error: text, kind: "client_" + gate.reason, code: "client_rate_limit", limited: true, retryAfter: gate.waitSeconds };
+  }
+
+  function exhausted() {
+    return {
+      ok: false,
+      kind: "attempts_exhausted",
+      code: "client_attempts",
+      error: "جرّبت كذا مرة والكود غلط. اطلب كود جديد وجرّب بيه.",
+      exhausted: true,
+      limited: false,
+      retryAfter: 0,
+    };
   }
 
   /** Uniform failure result for the gate: message + machine-readable details (never tokens or passwords). */
-  function failure(error) {
-    const c = classifyError(error);
+  function failure(error, context) {
+    const c = classifyError(error, context);
     try { console.warn("REBUILT auth:", c.kind, c.code || "-", c.status || "-"); } catch (err) { /* logging only */ }
     return { ok: false, error: c.text, kind: c.kind, code: c.code, limited: !!c.limited, retryAfter: c.retryAfter || 0 };
   }
@@ -339,6 +542,9 @@ REBUILT.Auth = (function () {
        Say so honestly instead of pretending. */
     async requestPasswordReset() {
       return { ok: false, localOnly: true, error: "الوضع المحلي مفيهوش باسورد على سيرفر، فمفيش رسالة هتتبعت." };
+    },
+    async verifyRecoveryCode() {
+      return { ok: false, localOnly: true, error: "الوضع المحلي مفيهوش كود تحقق، لأن مفيش سيرفر يبعته." };
     },
     async updatePassword() {
       return { ok: false, localOnly: true, error: "تغيير الباسورد محتاج حساب متصل بالسيرفر." };
@@ -379,8 +585,14 @@ REBUILT.Auth = (function () {
     validateEmailOnly,
     validateNewPassword,
     passwordStrength,
+    validateOtpCode,
+    normalizeCode,
     getRecovery,
     clearRecovery,
+    markResetPending,
+    Recovery,
+    createRecoveryGuard,
+    RECOVERY_LIMITS,
     watchAuthEvents,
     redirectUrlFor,
     classifyError,
@@ -392,6 +604,7 @@ REBUILT.Auth = (function () {
     signIn: (state, payload) => provider().signIn(state, payload),
     signOut: (state) => provider().signOut(state),
     requestPasswordReset: (email) => provider().requestPasswordReset(email),
+    verifyRecoveryCode: (email, code) => provider().verifyRecoveryCode(email, code),
     updatePassword: (pw) => provider().updatePassword(pw),
     getSession: (state) => provider().getSession(state),
   };
