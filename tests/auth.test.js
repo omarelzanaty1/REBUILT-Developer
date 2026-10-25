@@ -16,7 +16,10 @@
      4. The code step: digits are normalised, only a well-formed code reaches Supabase, the type
         sent is "recovery", wrong tries are counted per code request, and the app's own send /
         cooldown limits hold (and survive a refresh through the injected store).
-   They do NOT talk to Supabase. Whether the dashboard's Site URL / Redirect URLs are set is
+     5. Google sign-in / linking: signInWithOAuth for signed-out people, linkIdentity (never
+        signInWithOAuth) for the signed-in account, how a return from Google is read (success,
+        cancel, "already linked to another user"), and that no Google secret ships.
+   They do NOT talk to Supabase or Google. Whether the dashboard's Site URL / Redirect URLs are set is
    a project setting that code cannot check — see WEB-DEPLOYMENT.md.
    ============================================================ */
 
@@ -67,11 +70,14 @@ function shippedFiles(dir, out) {
 const rel = (f) => path.relative(ROOT, f).split(path.sep).join("/");
 
 /** Load js/auth.js into a bare context with a stubbed Supabase client, as the browser would see it. */
-function loadAuth(location, client) {
-  const sandbox = { console: { warn() {}, log() {}, error() {} }, URLSearchParams };
+function loadAuth(location, client, extras) {
+  const sandbox = { console: { warn() {}, log() {}, error() {} }, URLSearchParams, URL };
   sandbox.window = sandbox;
+  if (extras && extras.storage) sandbox.sessionStorage = extras.storage;
+  if (extras && extras.boot) sandbox.__REBUILT_BOOT_URL = extras.boot;
   sandbox.window.location = location || { origin: "https://omarelzanaty1.github.io", pathname: "/rebuilt0.4/", search: "", hash: "" };
   sandbox.history = { replaceState() {} };
+  sandbox.location = sandbox.window.location;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, "js/auth.js"), "utf8"), sandbox, { filename: "js/auth.js" });
   if (client) sandbox.REBUILT.SupabaseClient = { isAvailable: () => true, get: () => client };
@@ -90,6 +96,10 @@ function recordingClient(result) {
       resetPasswordForEmail: async (email, opts) => { calls.push({ fn: "resetPasswordForEmail", email, opts }); return reply(); },
       updateUser: async (attrs) => { calls.push({ fn: "updateUser", attrs }); return reply(); },
       verifyOtp: async (args) => { calls.push({ fn: "verifyOtp", args }); return reply(); },
+      signInWithOAuth: async (args) => { calls.push({ fn: "signInWithOAuth", args }); return reply({ data: { provider: "google", url: "https://accounts.example/auth" } }); },
+      linkIdentity: async (args) => { calls.push({ fn: "linkIdentity", args }); return reply({ data: { provider: "google", url: "https://accounts.example/auth" } }); },
+      getSession: async () => ({ data: { session: (result && result.session) === undefined ? { user: { id: "u1", email: "a@b.co", user_metadata: {} } } : result.session }, error: null }),
+      getUserIdentities: async () => ({ data: { identities: (result && result.identities) || [] }, error: null }),
     },
   };
 }
@@ -158,8 +168,8 @@ test("index.html carries the build marker (how a host's live version is identifi
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const m = html.match(/<meta name="rebuilt-build" content="([^"]+)"\s*\/?>/);
   assert.ok(m, "rebuilt-build meta missing");
-  assert.ok(/otp-reset/.test(m[1]), "marker should name the code-based recovery build, got: " + m[1]);
-  assert.ok(/<meta name="generator" content="REBUILT [^"]*otp-reset[^"]*"/.test(html), "generator meta should match");
+  assert.ok(/google-auth/.test(m[1]), "marker should name the Google sign-in build, got: " + m[1]);
+  assert.ok(/<meta name="generator" content="REBUILT [^"]*google-auth[^"]*"/.test(html), "generator meta should match");
 });
 
 test("the recovery screens never promise a link (the flow is code-based)", () => {
@@ -541,5 +551,272 @@ test("no code is generated, stored or compared in the app (Supabase Auth owns it
   assert.ok(!/localStorage\.setItem\([^)]*(otp|code)/i.test(src), "no code in localStorage");
 });
 
+
+/* ============================================================
+   5. Google sign-in and linking
+   ============================================================ */
+
+/** A tiny sessionStorage stand-in (the vm sandbox has none). */
+function memStorage() {
+  const m = {};
+  return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: (k) => { delete m[k]; }, _m: m };
+}
+const PROD_LOC = { origin: "https://rebuilt-jet.vercel.app", pathname: "/", search: "", hash: "" };
+
+test("no Google client secret or client id ships (the secret lives only in the Supabase dashboard)", () => {
+  const hits = [];
+  files.forEach((f) => {
+    const src = fs.readFileSync(f, "utf8");
+    if (/GOCSPX-/.test(src)) hits.push(rel(f) + " (GOCSPX-)");
+    if (/client_secret/i.test(src)) hits.push(rel(f) + " (client_secret)");
+    if (/[0-9]{6,}-[a-z0-9]{10,}\.apps\.googleusercontent\.com/i.test(src)) hits.push(rel(f) + " (OAuth client id)");
+  });
+  assert.deepStrictEqual(hits, []);
+});
+
+test("the Google button uses the official four-colour G and the required wording", () => {
+  const icons = fs.readFileSync(path.join(ROOT, "js/icons.js"), "utf8");
+  ["#EA4335", "#4285F4", "#FBBC05", "#34A853"].forEach((c) => assert.ok(icons.includes(c), "missing " + c));
+  const gate = fs.readFileSync(path.join(ROOT, "js/gate.js"), "utf8");
+  assert.ok(gate.includes("المتابعة باستخدام Google"));
+});
+
+test("parseAuthReturn: every shape of address is read as what it is", () => {
+  const P = (hash, search, marker) => Auth.parseAuthReturn({ hash: hash || "", search: search || "" }, marker || null);
+  const link = { mode: "link", uid: "u1" }, signin = { mode: "signin", uid: "" };
+  assert.strictEqual(P("#access_token=x&type=recovery").kind, "recovery");
+  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired").kind, "recovery-error");
+  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=x", "", link).kind, "recovery-error", "an expired e-mail link stays an e-mail-link problem even with a marker around");
+  const cancel = P("#error=access_denied&error_description=The+user+denied+access");
+  assert.strictEqual(cancel.kind, "oauth-error");
+  assert.strictEqual(cancel.mode, "signin");
+  assert.strictEqual(P("#error=access_denied&error_description=The+user+denied+access", "", link).mode, "link");
+  const taken = P("#error=server_error&error_code=identity_already_exists&error_description=Identity+is+already+linked+to+another+user", "", link);
+  assert.strictEqual(taken.kind, "oauth-error");
+  assert.strictEqual(taken.code, "identity_already_exists");
+  assert.strictEqual(P("", "?error=access_denied&error_description=denied").kind, "oauth-error", "query-string errors too");
+  const ok = P("#access_token=x&refresh_token=y&provider_token=z", "", link);
+  assert.strictEqual(ok.kind, "oauth-ok");
+  assert.strictEqual(ok.uid, "u1");
+  assert.strictEqual(P("#access_token=x", "", signin).mode, "signin");
+  assert.strictEqual(P("#access_token=x").kind, "none", "tokens with no marker are left to supabase-js, nothing is claimed");
+  assert.strictEqual(P("").kind, "none");
+  assert.strictEqual(P("#settings").kind, "none");
+});
+
+test("Google errors keep their own meaning (and the sign-in / link wording differs where it should)", () => {
+  const K = (err, ctx) => Auth.classifyError(err, ctx);
+  assert.strictEqual(K(E(422, "identity_already_exists", "Identity is already linked to another user"), "link").kind, "identity_taken");
+  assert.ok(/مش هندمج/.test(K({ code: "identity_already_exists", message: "x" }, "link").text));
+  assert.strictEqual(K(E(422, "manual_linking_disabled", "Manual linking is disabled"), "link").kind, "linking_disabled");
+  assert.strictEqual(K(E(400, "validation_failed", "Unsupported provider: provider is not enabled"), "oauth").kind, "provider_disabled");
+  assert.strictEqual(K(E(400, "oauth_provider_not_supported", "x"), "oauth").kind, "provider_disabled");
+  assert.strictEqual(K({ code: "access_denied", message: "The user denied access" }, "oauth").kind, "oauth_cancelled");
+  assert.notStrictEqual(K({ code: "access_denied", message: "x" }, "oauth").text, K({ code: "access_denied", message: "x" }, "link").text);
+  assert.strictEqual(K(E(400, "provider_email_needs_verification", "Unverified email with google"), "oauth").kind, "provider_email_unverified");
+  assert.strictEqual(K(E(500, "unexpected_failure", "boom"), "oauth").kind, "oauth_failed");
+  assert.ok(K(E(500, "unexpected_failure", "boom"), "oauth").text.includes("unexpected_failure"), "the server's code is kept for diagnosis");
+  assert.strictEqual(K(E(429, "over_request_rate_limit", "x"), "oauth").kind, "rate", "limits still read as limits");
+  assert.strictEqual(K({ name: "AuthRetryableFetchError", status: 0, message: "Failed to fetch" }, "oauth").kind, "network");
+  // outside the Google context nothing changed
+  assert.strictEqual(K({ code: "access_denied", message: "x" }).kind, "unknown");
+});
+
+test("signInWithGoogle: provider google, redirect = the published address, a marker for the way back, no secrets", async () => {
+  const client = recordingClient();
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store });
+  const res = await auth.signInWithGoogle();
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.redirecting, true);
+  assert.strictEqual(client.calls.length, 1);
+  assert.strictEqual(client.calls[0].fn, "signInWithOAuth");
+  assert.strictEqual(client.calls[0].args.provider, "google");
+  assert.strictEqual(client.calls[0].args.options.redirectTo, "https://rebuilt-jet.vercel.app/");
+  assert.strictEqual(client.calls[0].args.options.queryParams.prompt, "select_account");
+  const marker = JSON.parse(store.getItem("rebuilt.oauth"));
+  assert.strictEqual(marker.mode, "signin");
+  assert.ok(!/token|secret|@/.test(JSON.stringify(marker)), "the marker holds no token or e-mail");
+});
+
+test("signInWithGoogle: a server refusal clears the marker and explains itself", async () => {
+  const client = recordingClient({ data: { provider: "google", url: null }, error: E(400, "validation_failed", "Unsupported provider: provider is not enabled") });
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store });
+  const res = await auth.signInWithGoogle();
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.kind, "provider_disabled");
+  assert.strictEqual(store.getItem("rebuilt.oauth"), null);
+});
+
+test("linkGoogle: needs a signed-in account, uses linkIdentity ONLY, remembers whose account started it", async () => {
+  const none = recordingClient({ session: null });
+  const storeNone = memStorage();
+  const authNone = loadAuth(PROD_LOC, none, { storage: storeNone });
+  const r0 = await authNone.linkGoogle();
+  assert.strictEqual(r0.ok, false);
+  assert.strictEqual(r0.kind, "no_session");
+  assert.strictEqual(none.calls.length, 0, "nothing is sent without a session");
+  assert.strictEqual(storeNone.getItem("rebuilt.oauth"), null);
+
+  const client = recordingClient();
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store });
+  const r1 = await auth.linkGoogle();
+  assert.strictEqual(r1.ok, true);
+  assert.deepStrictEqual(client.calls.map((c) => c.fn), ["linkIdentity"], "never signInWithOAuth while linking");
+  assert.strictEqual(client.calls[0].args.provider, "google");
+  assert.strictEqual(client.calls[0].args.options.redirectTo, "https://rebuilt-jet.vercel.app/");
+  const marker = JSON.parse(store.getItem("rebuilt.oauth"));
+  assert.strictEqual(marker.mode, "link");
+  assert.strictEqual(marker.uid, "u1");
+});
+
+test("linkGoogle: manual linking switched off → clear message, marker cleared", async () => {
+  const client = recordingClient({ data: { provider: "google", url: null }, error: E(422, "manual_linking_disabled", "Manual linking is disabled") });
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store });
+  const res = await auth.linkGoogle();
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.kind, "linking_disabled");
+  assert.strictEqual(store.getItem("rebuilt.oauth"), null);
+});
+
+test("getIdentities: provider + e-mail only", async () => {
+  const client = recordingClient({ identities: [
+    { identity_id: "i1", provider: "email", identity_data: { email: "a@b.co", sub: "secret-sub" } },
+    { identity_id: "i2", provider: "google", identity_data: { email: "g@gmail.com" } },
+  ] });
+  const auth = loadAuth(PROD_LOC, client);
+  const res = await auth.getIdentities();
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(JSON.stringify(res.identities), JSON.stringify([{ provider: "email", email: "a@b.co", id: "i1" }, { provider: "google", email: "g@gmail.com", id: "i2" }]));
+});
+
+/** Run consumeOAuthResult for a given landing address and marker. */
+async function comeBackFrom(boot, marker, clientResult) {
+  const store = memStorage();
+  if (marker) store.setItem("rebuilt.oauth", JSON.stringify(Object.assign({ t: Date.now() }, marker)));
+  const client = recordingClient(clientResult);
+  const auth = loadAuth(PROD_LOC, client, { storage: store, boot });
+  const first = await auth.consumeOAuthResult();
+  const second = await auth.consumeOAuthResult();
+  return { first, second, store, client };
+}
+
+test("coming back from Google, cancelled: a calm message, marker cleared, read only once", async () => {
+  const r = await comeBackFrom({ hash: "#error=access_denied&error_description=The+user+denied+access", search: "" }, { mode: "signin", uid: "" });
+  assert.strictEqual(r.first.ok, false);
+  assert.strictEqual(r.first.mode, "signin");
+  assert.strictEqual(r.first.kind, "oauth_cancelled");
+  assert.strictEqual(r.second, null);
+  assert.strictEqual(r.store.getItem("rebuilt.oauth"), null);
+  assert.strictEqual(r.client.calls.length, 0, "a failed return touches nothing on the server");
+});
+
+test("coming back from linking, Google already belongs to someone else: refused, nothing merged", async () => {
+  const r = await comeBackFrom({ hash: "#error=server_error&error_code=identity_already_exists&error_description=Identity+is+already+linked+to+another+user", search: "" }, { mode: "link", uid: "u1" });
+  assert.strictEqual(r.first.ok, false);
+  assert.strictEqual(r.first.mode, "link");
+  assert.strictEqual(r.first.kind, "identity_taken");
+  assert.ok(/مرتبط بحساب REBUILT تاني/.test(r.first.error) && /مش هندمج/.test(r.first.error));
+  assert.strictEqual(r.client.calls.length, 0);
+});
+
+test("coming back from linking, success is only claimed when it is true", async () => {
+  const boot = { hash: "#access_token=x&refresh_token=y", search: "" };
+  const google = [{ identity_id: "i2", provider: "google", identity_data: { email: "g@gmail.com" } }];
+  const ok = await comeBackFrom(boot, { mode: "link", uid: "u1" }, { identities: google });
+  assert.strictEqual(ok.first.ok, true);
+  assert.strictEqual(ok.first.mode, "link");
+
+  const other = await comeBackFrom(boot, { mode: "link", uid: "someone-else" }, { identities: google });
+  assert.strictEqual(other.first.ok, false);
+  assert.strictEqual(other.first.kind, "session_changed");
+
+  const missing = await comeBackFrom(boot, { mode: "link", uid: "u1" }, { identities: [] });
+  assert.strictEqual(missing.first.ok, false);
+  assert.strictEqual(missing.first.kind, "link_unconfirmed");
+
+  const noSession = await comeBackFrom(boot, { mode: "link", uid: "u1" }, { session: null, identities: google });
+  assert.strictEqual(noSession.first.ok, false);
+  assert.strictEqual(noSession.first.kind, "no_session");
+});
+
+test("coming back from a Google sign-in: success needs no extra calls; not coming back from Google → null", async () => {
+  const ok = await comeBackFrom({ hash: "#access_token=x", search: "" }, { mode: "signin", uid: "" });
+  assert.strictEqual(ok.first.ok, true);
+  assert.strictEqual(ok.first.mode, "signin");
+  assert.strictEqual(ok.client.calls.length, 0);
+  const none = await comeBackFrom({ hash: "", search: "" }, null);
+  assert.strictEqual(none.first, null);
+  const tokensOnly = await comeBackFrom({ hash: "#access_token=x", search: "" }, null);
+  assert.strictEqual(tokensOnly.first, null, "no marker → nothing is claimed");
+  const stale = await comeBackFrom({ hash: "#access_token=x", search: "" }, { mode: "link", uid: "u1", t: Date.now() - 16 * 60 * 1000 });
+  assert.strictEqual(stale.first, null, "a marker older than 15 minutes is ignored");
+});
+
+test("an e-mail-link error is still the recovery screen's business, not a Google failure", async () => {
+  const boot = { hash: "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", search: "" };
+  const r = await comeBackFrom(boot, null);
+  assert.strictEqual(r.first, null);
+  const auth = loadAuth(PROD_LOC, recordingClient(), { storage: memStorage(), boot });
+  assert.strictEqual(auth.getRecovery().status, "error");
+});
+
+test("getSession brings the name Google sent when the app has none yet", async () => {
+  const client = recordingClient({ session: { user: { id: "u9", email: "n@g.co", user_metadata: { full_name: "نور" } } } });
+  const auth = loadAuth(PROD_LOC, client);
+  const s1 = await auth.getSession({ user: { name: "" } });
+  assert.strictEqual(s1.name, "نور");
+  const s2 = await auth.getSession({ user: { name: "عمر" } });
+  assert.strictEqual(s2.name, "عمر", "a name the person already chose is never replaced");
+});
+
+/** Run index.html's inline boot script against a fake address bar. */
+function runBootScript(search, hash) {
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const m = html.match(/<script>\s*(\(function \(\) \{[\s\S]*?__REBUILT_BOOT_URL[\s\S]*?\}\)\(\);)\s*<\/script>/);
+  assert.ok(m, "boot script not found in index.html");
+  const replaced = [];
+  const loc = { pathname: "/", search: search, hash: hash };
+  const sandbox = { URLSearchParams, location: loc, history: { replaceState: (a, b, url) => replaced.push(url) } };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(m[1], sandbox);
+  return { boot: sandbox.__REBUILT_BOOT_URL, replaced };
+}
+
+test("boot script: error parameters are kept in the snapshot, then taken out of the address (supabase-js would sign the user out)", () => {
+  const a = runBootScript("", "#error=access_denied&error_description=The+user+denied+access");
+  assert.strictEqual(a.boot.hash, "#error=access_denied&error_description=The+user+denied+access");
+  assert.deepStrictEqual(a.replaced, ["/"]);
+  const b = runBootScript("?error=access_denied&error_description=x&keep=1", "");
+  assert.strictEqual(b.boot.search, "?error=access_denied&error_description=x&keep=1");
+  assert.deepStrictEqual(b.replaced, ["/?keep=1"]);
+  const c = runBootScript("", "#error=server_error&error_code=identity_already_exists&error_description=x");
+  assert.deepStrictEqual(c.replaced, ["/"]);
+});
+
+test("boot script: tokens and ordinary addresses are left alone", () => {
+  const ok = runBootScript("", "#access_token=abc&refresh_token=def&type=bearer");
+  assert.deepStrictEqual(ok.replaced, [], "supabase-js must still see the tokens");
+  assert.strictEqual(ok.boot.hash, "#access_token=abc&refresh_token=def&type=bearer");
+  assert.deepStrictEqual(runBootScript("", "#settings").replaced, []);
+  assert.deepStrictEqual(runBootScript("", "").replaced, []);
+});
+
+test("the settings page offers linking only through Auth.linkGoogle (never signInWithOAuth)", () => {
+  const settings = fs.readFileSync(path.join(ROOT, "js/pages/settings.js"), "utf8");
+  assert.ok(/Auth\.linkGoogle\(\)/.test(settings));
+  assert.ok(!/signInWithOAuth|signInWithGoogle/.test(settings), "linking must never start a plain Google sign-in");
+  const gate = fs.readFileSync(path.join(ROOT, "js/gate.js"), "utf8");
+  assert.ok(/Auth\.signInWithGoogle\(\)/.test(gate) && !/linkGoogle|linkIdentity/.test(gate), "the sign-in screen only signs in");
+});
+
+test("the app never creates profile rows itself (the sign-up trigger does, once per auth user)", () => {
+  const data = fs.readFileSync(path.join(ROOT, "js/supabaseData.js"), "utf8");
+  assert.ok(!/from\("(profiles|user_profiles|ai_profiles)"\)\s*\.\s*(insert|upsert)/.test(data.replace(/\s+/g, " ")), "no client-side insert/upsert on the profile tables");
+});
 
 runAll();

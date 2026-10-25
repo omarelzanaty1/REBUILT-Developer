@@ -53,6 +53,8 @@ REBUILT.Gate = (function () {
   const cooldownSeconds = () => REBUILT.Auth.RECOVERY_LIMITS.resendCooldownSeconds;
 
   let state, onComplete, ctx, step, authMode, draft, form, cooldownTimer;
+  let pendingNotice = ""; // a message to show on the sign-in screen once (e.g. Google was cancelled)
+  let googleLeaving = false; // the browser is on its way to Google: ignore further clicks for a moment
 
   /* ---------------- Entry ---------------- */
 
@@ -73,6 +75,12 @@ REBUILT.Gate = (function () {
       step = "reset";
     } else if (!state.meta.hasLocalAccount) {
       step = "welcome";
+      // Came back from Google without getting in (cancelled, refused): say so where they can try again.
+      if (ctx.oauth && ctx.oauth.ok === false && REBUILT.Auth.isRealAuth()) {
+        authMode = "signin";
+        step = "auth";
+        pendingNotice = ctx.oauth.error || "";
+      }
     } else if (!state.meta.isOnboarded) {
       step = "onboard-basic";
     } else {
@@ -406,6 +414,7 @@ REBUILT.Gate = (function () {
 
       <h1 class="gate__title">${isSignup ? "ابدأ رحلتك مع REBUILT" : "أهلاً بيك تاني"}</h1>
       <p class="gate__sub">${isSignup ? "حساب واحد وبياناتك معاك في أي مكان." : "سجّل دخولك وكمّل من حيث وقفت."}</p>
+      ${googleBlock()}
 
       <form class="gate__form" id="auth-form" novalidate>
         ${noticeSlot()}
@@ -427,13 +436,23 @@ REBUILT.Gate = (function () {
     `, { back: "welcome" });
   }
 
+  /** "Continue with Google" + the divider — only when a real server can answer (the local fallback has no OAuth). */
+  function googleBlock() {
+    if (!REBUILT.Auth.isRealAuth()) return "";
+    return `
+      <div class="gate__google">
+        <button type="button" class="btn btn--google btn--lg btn--block" id="google-btn">${I().googleG(20)}<span>المتابعة باستخدام Google</span></button>
+        <div class="gate__divider" role="separator"><span>أو بالإيميل</span></div>
+      </div>`;
+  }
+
   function confirmEmailHTML() {
     return frame(`
       <div class="gate__state">
         <span class="gate__state-ico">${I().svg("mail", { size: 30 })}</span>
         <h1 class="gate__title">بص في إيميلك</h1>
         <p class="gate__sub">بعتنا رسالة تأكيد على <bdi class="num-ltr">${esc(form.email)}</bdi>. افتحها واضغط على اللينك، وبعدها ارجع هنا وسجّل دخول.</p>
-        <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions. ولو الإيميل ده مسجّل قبل كده، سجّل دخولك أو اضغط «نسيت الباسورد».</p>
+        <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions. ولو الإيميل ده مسجّل قبل كده (بالباسورد أو بـ Google)، سجّل دخولك أو اضغط «نسيت الباسورد».</p>
         <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin-after-confirm">أكدت، يلا ندخل</button>
         <button type="button" class="btn btn--ghost btn--block" data-go="signup">استخدم إيميل تاني</button>
       </div>
@@ -699,6 +718,38 @@ REBUILT.Gate = (function () {
 
     restoreButton(qs("#auth-submit"), authMode === "signup" ? "signup" : "signin");
 
+    if (pendingNotice) {
+      showNotice("danger", esc(pendingNotice));
+      pendingNotice = "";
+    }
+
+    const googleBtn = qs("#google-btn");
+    if (googleBtn) {
+      restoreButton(googleBtn, "google");
+      googleBtn.addEventListener("click", async () => {
+        if (inFlight.has("google") || googleLeaving || holdSecondsLeft("google") > 0) return;
+        showNotice("", "");
+        const run = await runOnce("google", googleBtn, async () => {
+          try {
+            return await REBUILT.Auth.signInWithGoogle();
+          } catch (err) {
+            return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          }
+        });
+        if (run.skipped) return;
+        const res = run.value;
+        if (!res.ok) {
+          showNotice("danger", esc(res.error));
+          if (res.limited) startHold("google", res.retryAfter, googleBtn);
+          return;
+        }
+        // The browser is already heading to Google. Keep the button busy so a second click can't start a second trip.
+        googleLeaving = true;
+        setLoading(liveButton(googleBtn), true);
+        setTimeout(() => { googleLeaving = false; setLoading(liveButton(googleBtn), false); }, 10000);
+      });
+    }
+
     qs("#auth-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const key = authMode === "signup" ? "signup" : "signin";
@@ -731,7 +782,10 @@ REBUILT.Gate = (function () {
       const result = run.value;
 
       if (!result.ok) {
-        showNotice("danger", esc(result.error));
+        // Wrong password is also what an account that only ever used Google looks like — a generic hint, so it reveals nothing.
+        const hint = result.kind === "credentials" && !isSignup && REBUILT.Auth.isRealAuth()
+          ? `<br/><span class="faint">لو حسابك اتعمل بـ Google، دوس «المتابعة باستخدام Google» فوق.</span>` : "";
+        showNotice("danger", esc(result.error), hint);
         if (result.limited) startHold(key, result.retryAfter, submitBtn); // no point inviting another click right away
         return;
       }

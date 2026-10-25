@@ -18,6 +18,7 @@ REBUILT.App = (function () {
   let state = null;
   let lastSettledDay = null;
   let navBound = false;
+  let oauthResult = null; // how the trip to Google went, kept until the gate has finished
 
   const clone = (o) => JSON.parse(JSON.stringify(o));
   const todayISO = () => REBUILT.Data.todayISO(0);
@@ -120,6 +121,7 @@ REBUILT.App = (function () {
           state.meta.hasLocalAccount = true;
           state.user.id = session.userId;
           state.user.email = session.email;
+          if (!state.user.name && session.name) state.user.name = session.name; // e.g. the name Google sends
         } else if (state.meta.hasLocalAccount) {
           // Local flag claims signed-in but the server disagrees (expired /
           // signed out elsewhere) — send them back through the gate.
@@ -132,7 +134,29 @@ REBUILT.App = (function () {
       }
     }
 
-    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState });
+    // Back from Google (sign-in or "link my Google account")? Read how it went before the gate decides what to show.
+    try {
+      oauthResult = await REBUILT.Auth.consumeOAuthResult();
+    } catch (err) {
+      console.warn("REBUILT: could not read the Google result", err);
+      oauthResult = null;
+    }
+
+    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState, oauth: oauthResult });
+  }
+
+  /** Shown after the gate: a linking attempt lands on Settings (where the result is explained); other failures get a toast. */
+  function announceOAuthResult() {
+    const r = oauthResult;
+    oauthResult = null;
+    if (!r) return null;
+    if (r.mode === "link") {
+      REBUILT.OAuthNotice = r; // settings.js shows it next to the sign-in methods, then clears it
+      if (r.ok) REBUILT.Toast.show({ icon: "checkCircle", text: "اتربط حساب Google بحسابك.", tone: "success" });
+      return "settings";
+    }
+    if (r.ok === false) REBUILT.Toast.show({ icon: "alert", text: REBUILT.Components.esc(r.error), tone: "danger", duration: 5000 });
+    return null;
   }
 
   function onGatePassed() {
@@ -146,7 +170,8 @@ REBUILT.App = (function () {
 
     REBUILT.Shell.mount();
     bindDelegates();
-    REBUILT.Router.navigateTo(REBUILT.Router.pageFromHash() || "dashboard");
+    const landing = announceOAuthResult();
+    REBUILT.Router.navigateTo(landing || REBUILT.Router.pageFromHash() || "dashboard");
   }
 
   function bindDelegates() {

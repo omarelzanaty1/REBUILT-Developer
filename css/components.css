@@ -55,6 +55,11 @@
 }
 .btn--danger:hover:not(:disabled) { background: rgba(255, 94, 114, 0.22); }
 
+/* Google's "dark theme" button colours (their branding guidelines): #131314 fill, #8E918F outline, #E3E3E3 text, untouched "G". */
+.btn--google { background: #131314; border-color: #8e918f; color: #e3e3e3; gap: var(--s-3); }
+.btn--google:hover:not(:disabled) { background: #1d1d1f; border-color: #b4b7b5; }
+.btn--google.is-loading::after { color: #e3e3e3; }
+
 .btn--danger-solid { background: var(--danger); color: #2a0a10; }
 .btn--danger-solid:hover:not(:disabled) { filter: brightness(1.08); }
 

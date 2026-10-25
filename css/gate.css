@@ -123,6 +123,10 @@ body.is-gate { background: var(--bg); }
 
 .gate__form { display: flex; flex-direction: column; gap: var(--s-4); }
 .gate__form .field + .field { margin-top: 0; }
+.gate__divider { display: flex; align-items: center; gap: var(--s-3); margin-block: var(--s-4); color: var(--ink-faint); font-size: var(--fs-xs); }
+.gate__divider::before, .gate__divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.gate__google { display: flex; flex-direction: column; }
+
 .gate__row { display: flex; justify-content: flex-end; margin-top: calc(var(--s-1) * -1); }
 .gate__fine { display: flex; align-items: flex-start; gap: var(--s-2); font-size: var(--fs-xs); color: var(--ink-faint); line-height: 1.7; }
 .gate__fine .icon { margin-top: 3px; color: var(--success); }

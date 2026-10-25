@@ -60,6 +60,18 @@ REBUILT.Pages.settings = (function () {
       </div>`
     );
 
+    const methods = connected
+      ? section(
+          "shield",
+          "طرق تسجيل الدخول",
+          "الطرق اللي تقدر تدخل بيها على نفس الحساب وبنفس بياناتك.",
+          `
+        <div id="link-notice" aria-live="polite"></div>
+        <div id="signin-methods" aria-busy="true"><p class="faint">بنجيب طرق الدخول…</p></div>
+        <div class="notice notice--info">${I.svg("info")}<div>ربط Google بيضيف طريقة دخول لحسابك الحالي بنفس عاداتك ومهامك وتقدّمك. مش بيعمل حساب جديد ومش بيدمج حسابات. لو إيميل Google مختلف عن إيميل حسابك، اربطه من هنا الأول بدل ما تدخل بيه من صفحة الدخول، عشان ماتتعملش حسابين.</div></div>`
+        )
+      : "";
+
     const security = connected
       ? section(
           "key",
@@ -119,6 +131,7 @@ REBUILT.Pages.settings = (function () {
       ${Components.pageHeader({ title: "الإعدادات" })}
       <div class="settings-stack">
         ${account}
+        ${methods}
         ${security}
         ${appearance}
         ${data}
@@ -127,8 +140,85 @@ REBUILT.Pages.settings = (function () {
     `;
   }
 
+  /** "Sign-in methods": the identities attached to this account, and the way to add Google to it. */
+  const providerOf = (list, name) => list.find((i) => i.provider === name);
+
+  function renderMethods(container, res) {
+    const box = container.querySelector("#signin-methods");
+    if (!box) return;
+    box.removeAttribute("aria-busy");
+    if (!res || !res.ok) {
+      box.innerHTML = `<div class="notice notice--warn">${I.svg("alert")}<div>${esc((res && res.error) || "مقدرناش نجيب طرق الدخول دلوقتي.")}<br/><button type="button" class="btn-link" id="methods-retry">جرّب تاني</button></div></div>`;
+      const retry = box.querySelector("#methods-retry");
+      if (retry) retry.addEventListener("click", () => loadMethods(container));
+      return;
+    }
+    const email = providerOf(res.identities, "email");
+    const google = providerOf(res.identities, "google");
+    const emailRow = row(
+      "الإيميل والباسورد",
+      email ? "تقدر تدخل بإيميلك وباسوردك." : "لسه معملتش باسورد. تقدر تضيف واحد من «تغيير الباسورد» تحت.",
+      `<span class="badge ${email ? "badge--success" : "badge--soon"}">${email ? "مفعّل" : "مش مفعّل"}</span>`
+    );
+    const googleRow = google
+      ? row("Google", google.email ? `<bdi class="num-ltr">${esc(google.email)}</bdi>` : "حساب Google مرتبط.", `<span class="badge badge--success">${I.svg("check", { size: 12 })}مرتبط</span>`)
+      : row("Google", "لسه مش مربوط. اربطه عشان تدخل بيه على نفس الحساب.", `<button type="button" class="btn btn--secondary" id="link-google-btn">${I.googleG(18)}ربط حساب Google</button>`);
+    box.innerHTML = emailRow + googleRow;
+    const btn = box.querySelector("#link-google-btn");
+    if (btn) btn.addEventListener("click", () => startLink(container, btn));
+  }
+
+  async function loadMethods(container) {
+    const box = container.querySelector("#signin-methods");
+    if (box) { box.setAttribute("aria-busy", "true"); box.innerHTML = `<p class="faint">بنجيب طرق الدخول…</p>`; }
+    let res;
+    try {
+      res = await REBUILT.Auth.getIdentities();
+    } catch (err) {
+      res = { ok: false, error: REBUILT.Messages.genericError() };
+    }
+    renderMethods(container, res);
+  }
+
+  let linkBusy = false;
+  async function startLink(container, btn) {
+    if (linkBusy) return; // one trip to Google at a time
+    linkBusy = true;
+    const notice = container.querySelector("#link-notice");
+    if (notice) notice.innerHTML = "";
+    btn.disabled = true;
+    btn.classList.add("is-loading");
+    let res;
+    try {
+      res = await REBUILT.Auth.linkGoogle();
+    } catch (err) {
+      res = { ok: false, error: REBUILT.Messages.genericError() };
+    }
+    if (res.ok) {
+      // The browser is leaving for Google; keep the button busy so a second click can't start another trip.
+      setTimeout(() => { linkBusy = false; btn.disabled = false; btn.classList.remove("is-loading"); }, 10000);
+      return;
+    }
+    linkBusy = false;
+    btn.disabled = false;
+    btn.classList.remove("is-loading");
+    if (notice) notice.innerHTML = `<div class="notice notice--danger" role="alert">${I.svg("alert")}<div>${esc(res.error)}</div></div>`;
+  }
+
   function afterRender(container, state) {
     const on = (sel, evt, fn) => { const el = container.querySelector(sel); if (el) el.addEventListener(evt, fn); };
+
+    if (container.querySelector("#signin-methods")) {
+      const back = REBUILT.OAuthNotice; // how the trip to Google went (set by app.js), shown once
+      REBUILT.OAuthNotice = null;
+      const slot = container.querySelector("#link-notice");
+      if (back && slot) {
+        slot.innerHTML = back.ok
+          ? `<div class="notice notice--success" role="status">${I.svg("checkCircle")}<div>اتربط حساب Google بحسابك الحالي. بياناتك زي ما هي، وتقدر تدخل بيه من دلوقتي.</div></div>`
+          : `<div class="notice notice--danger" role="alert">${I.svg("alert")}<div>${esc(back.error)}</div></div>`;
+      }
+      loadMethods(container);
+    }
 
     on("#sign-out-btn", "click", () => REBUILT.Actions.signOut());
     on("#motion-toggle", "change", (e) => REBUILT.Actions.updateSettings({ reduceMotion: e.target.checked }));

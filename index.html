@@ -8,17 +8,35 @@
   <meta name="theme-color" content="#201F19" />
   <meta name="color-scheme" content="dark" />
   <!-- Build marker: lets anyone check WHICH version a host (Vercel / GitHub Pages) is really serving. Bump it with each release. -->
-  <meta name="rebuilt-build" content="0.4.2 otp-reset 2026-10-24" />
-  <meta name="generator" content="REBUILT 0.4.2 otp-reset 2026-10-24" />
+  <meta name="rebuilt-build" content="0.4.3 google-auth 2026-10-25" />
+  <meta name="generator" content="REBUILT 0.4.3 google-auth 2026-10-25" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg" />
   <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/icon-32.png" />
   <link rel="apple-touch-icon" href="assets/icons/icon-180.png" />
 
   <!-- Snapshot of the landing URL, taken BEFORE supabase-js consumes the hash.
-       Lets the app recognise a password-recovery link (…#access_token=…&type=recovery)
-       or an expired-link error. Only the raw strings are kept; nothing is read from them here. -->
-  <script>window.__REBUILT_BOOT_URL = { hash: window.location.hash || "", search: window.location.search || "" };</script>
+       Lets the app recognise an old password-recovery link (…#access_token=…&type=recovery),
+       an expired-link error, or the way back from Google (js/auth.js → parseAuthReturn).
+       Only the raw strings are kept; nothing is read from them here.
+       Error parameters (…#error=access_denied…) are then taken out of the address: supabase-js treats
+       "a sign-in through the URL failed" as a reason to sign the current user OUT, and a cancelled
+       "link Google" must never do that. The app shows the message itself from the snapshot. -->
+  <script>
+    (function () {
+      var w = window, loc = w.location;
+      w.__REBUILT_BOOT_URL = { hash: loc.hash || "", search: loc.search || "" };
+      try {
+        var q = new URLSearchParams(loc.search), h = new URLSearchParams((loc.hash || "").replace(/^#/, ""));
+        var has = function (p) { return p.has("error") || p.has("error_code") || p.has("error_description"); };
+        if (has(q) || has(h)) {
+          ["error", "error_code", "error_description"].forEach(function (k) { q.delete(k); h.delete(k); });
+          var qs = q.toString(), hs = h.toString();
+          w.history.replaceState(null, "", loc.pathname + (qs ? "?" + qs : "") + (hs ? "#" + hs : ""));
+        }
+      } catch (e) { /* the snapshot above is what matters */ }
+    })();
+  </script>
 
   <!-- Fonts: Cairo (Arabic + Latin UI) and Archivo Narrow (stand-in for the brand's Arial Narrow display face). -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />

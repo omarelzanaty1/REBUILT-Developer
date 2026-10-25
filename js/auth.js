@@ -203,18 +203,59 @@ REBUILT.Auth = (function () {
     } catch (err) { /* storage unavailable: the flag then lives only in memory */ }
   }
 
-  const recovery = (function () {
-    const boot = window.__REBUILT_BOOT_URL || { hash: "", search: "" };
-    const h = new URLSearchParams(String(boot.hash || "").replace(/^#/, ""));
-    const q = new URLSearchParams(String(boot.search || "").replace(/^\?/, ""));
-    const errCode = h.get("error_code") || q.get("error_code") || "";
-    const errName = h.get("error") || q.get("error") || "";
-    const hasError = !!(errCode || errName) && (h.get("type") === "recovery" || /otp|expired|access_denied|recovery/i.test(errCode + errName + (h.get("error_description") || "")));
-    return {
-      intent: (h.get("type") === "recovery" && !!h.get("access_token")) || readPending(),
-      error: hasError ? { code: errCode || errName } : null,
-    };
-  })();
+  /* ---------------- Coming back from an e-mail link or from Google ----------------
+     Every redirect back to the app lands on the same address, so the address alone says little:
+       …#access_token=…&type=recovery        an old recovery link              → recovery
+       …#error=…&error_code=otp_expired      a stale e-mail link               → recovery-error
+       …#access_token=…  (+ our marker)      back from Google (sign-in / link) → oauth-ok
+       …#error=access_denied  (or other)     Google cancelled / refused        → oauth-error
+     "Our marker" is a short-lived flag in sessionStorage written just before the browser leaves for Google
+     (which flow it was, and for a link: whose account). It holds no token and no e-mail address.
+     parseAuthReturn is pure (takes the boot snapshot) so each shape can be tested without a browser. */
+
+  const OAUTH_KEY = "rebuilt.oauth";
+  const OAUTH_TTL_MS = 15 * 60 * 1000;
+
+  function readOAuthMarker() {
+    try {
+      const v = JSON.parse(window.sessionStorage.getItem(OAUTH_KEY) || "null");
+      if (v && (v.mode === "signin" || v.mode === "link") && Number.isFinite(v.t) && Date.now() - v.t < OAUTH_TTL_MS) return v;
+    } catch (err) { /* storage unavailable or unreadable: no marker */ }
+    return null;
+  }
+  function writeOAuthMarker(mode, uid) {
+    try { window.sessionStorage.setItem(OAUTH_KEY, JSON.stringify({ mode, uid: uid || "", t: Date.now() })); } catch (err) { /* then the return just carries no marker */ }
+  }
+  function clearOAuthMarker() {
+    try { window.sessionStorage.removeItem(OAUTH_KEY); } catch (err) { /* nothing to clear */ }
+  }
+
+  function parseAuthReturn(boot, marker) {
+    const b = boot || {};
+    const h = new URLSearchParams(String(b.hash || "").replace(/^#/, ""));
+    const q = new URLSearchParams(String(b.search || "").replace(/^\?/, ""));
+    const get = (k) => h.get(k) || q.get(k) || "";
+    const errCode = get("error_code");
+    const errName = get("error");
+    const desc = get("error_description");
+    const isRecoveryType = h.get("type") === "recovery";
+    if (errCode || errName) {
+      // An e-mail link that is no longer valid keeps its own screen; anything else is a failed sign-in elsewhere (Google).
+      const emailLink = isRecoveryType || /^otp_expired$/i.test(errCode) || /email link|recovery/i.test(desc);
+      if (emailLink) return { kind: "recovery-error", code: errCode || errName };
+      return { kind: "oauth-error", mode: marker ? marker.mode : "signin", uid: marker ? marker.uid : "", code: errCode || errName, description: desc };
+    }
+    if (isRecoveryType && h.get("access_token")) return { kind: "recovery" };
+    if (marker && h.get("access_token")) return { kind: "oauth-ok", mode: marker.mode, uid: marker.uid };
+    return { kind: "none" };
+  }
+
+  const authReturn = parseAuthReturn(window.__REBUILT_BOOT_URL, readOAuthMarker());
+
+  const recovery = {
+    intent: authReturn.kind === "recovery" || readPending(),
+    error: authReturn.kind === "recovery-error" ? { code: authReturn.code } : null,
+  };
 
   /** What the gate should do on load: nothing, show "set a new password", or show "link expired". */
   function getRecovery() {
@@ -393,15 +434,129 @@ REBUILT.Auth = (function () {
         if (recovery.intent) clearRecovery();
         return { loggedIn: false, localOnly: false };
       }
+      const meta = data.session.user.user_metadata || {};
       return {
         loggedIn: true,
         userId: data.session.user.id,
         email: data.session.user.email,
-        name: state.user.name,
+        name: state.user.name || meta.name || meta.full_name || "",   // a Google account brings its own display name
         localOnly: false,
       };
     },
+
+    /* ---------- Google (official Supabase OAuth) ----------
+       Sign-in and linking go through Supabase Auth; the Google client secret lives only in the Supabase
+       dashboard, never here. Both calls leave the page for Google and come back to the app's own address
+       (the same canonical redirect target as the sign-up e-mail, so nothing new has to be allow-listed). */
+
+    /** "Continue with Google" for someone who is signed out: a new account, or the one this Google identity already belongs to. */
+    async signInWithGoogle() {
+      const sb = REBUILT.SupabaseClient.get();
+      const options = { queryParams: { prompt: "select_account" } };
+      const redirect = appRedirectUrl();
+      if (redirect) options.redirectTo = redirect;
+      writeOAuthMarker("signin");
+      const { data, error } = await sb.auth.signInWithOAuth({ provider: "google", options });
+      if (error) {
+        clearOAuthMarker();
+        return failure(error, "oauth");
+      }
+      return { ok: true, redirecting: true, url: data && data.url };
+    },
+
+    /**
+     * Attach a Google identity to the account that is signed in RIGHT NOW. Uses linkIdentity — never
+     * signInWithOAuth — so Supabase can't create a second user; if that Google identity already belongs
+     * to someone else it refuses instead of merging.
+     */
+    async linkGoogle() {
+      const sb = REBUILT.SupabaseClient.get();
+      const { data: cur } = await sb.auth.getSession();
+      if (!cur || !cur.session) {
+        return { ok: false, kind: "no_session", code: "no_session", limited: false, retryAfter: 0, error: "سجّل دخولك الأول، وبعدها اربط حساب Google." };
+      }
+      const options = { queryParams: { prompt: "select_account" } };
+      const redirect = appRedirectUrl();
+      if (redirect) options.redirectTo = redirect;
+      writeOAuthMarker("link", cur.session.user.id);
+      const { data, error } = await sb.auth.linkIdentity({ provider: "google", options });
+      if (error) {
+        clearOAuthMarker();
+        return failure(error, "link");
+      }
+      return { ok: true, redirecting: true, url: data && data.url };
+    },
+
+    /** The sign-in methods attached to the signed-in account: [{ provider, email, id }]. */
+    async getIdentities() {
+      const sb = REBUILT.SupabaseClient.get();
+      const { data, error } = await sb.auth.getUserIdentities();
+      if (error) return failure(error);
+      const list = (data && data.identities) || [];
+      return {
+        ok: true,
+        identities: list.map((i) => ({
+          provider: i.provider,
+          email: (i.identity_data && i.identity_data.email) || "",
+          id: i.identity_id || i.id || "",
+        })),
+      };
+    },
   };
+
+  /* ---------------- What happened on the way back from Google ---------------- */
+
+  /** Take the address back to a clean one once the result has been read (nothing sensitive stays in the bar). */
+  function cleanReturnParams() {
+    try {
+      const u = new URL(window.location.href);
+      ["error", "error_code", "error_description"].forEach((k) => u.searchParams.delete(k));
+      const hash = /access_token|error/.test(u.hash) ? "" : u.hash;
+      history.replaceState(null, "", u.pathname + u.search + hash);
+    } catch (err) { /* cosmetic only */ }
+  }
+
+  let oauthConsumed = false;
+
+  /**
+   * Called once, after the session has been read and before the gate decides what to show.
+   * → null (this visit was not a return from Google), or
+   *   { ok, mode: "signin" | "link", kind?, error? }
+   * A cancelled / failed attempt never touches the session: the address is cleaned before supabase-js
+   * starts (index.html), so "the login via URL failed" can't sign anyone out.
+   */
+  async function consumeOAuthResult() {
+    if (oauthConsumed) return null;
+    oauthConsumed = true;
+    const r = authReturn;
+    if (r.kind !== "oauth-ok" && r.kind !== "oauth-error") return null;
+    clearOAuthMarker();
+    cleanReturnParams();
+    const link = r.mode === "link";
+
+    if (r.kind === "oauth-error") {
+      const c = classifyError({ code: r.code, message: r.description }, link ? "link" : "oauth");
+      return { ok: false, mode: r.mode, kind: c.kind, code: c.code, error: c.text };
+    }
+    if (!link) return { ok: true, mode: "signin" };
+
+    // Linking: only call it done when it really is — same person still signed in, and Google is among their identities.
+    if (!REBUILT.SupabaseClient || !REBUILT.SupabaseClient.isAvailable()) return null;
+    const sb = REBUILT.SupabaseClient.get();
+    const { data } = await sb.auth.getSession();
+    const sess = data && data.session;
+    if (!sess) {
+      return { ok: false, mode: "link", kind: "no_session", error: "الجلسة انتهت أثناء الربط. سجّل دخولك وجرّب تاني." };
+    }
+    if (r.uid && sess.user.id !== r.uid) {
+      return { ok: false, mode: "link", kind: "session_changed", error: "الحساب اللي رجع بعد Google مختلف عن الحساب اللي بدأت منه، فمش هنعتبر الربط اتم. اتأكد إنك داخل على حسابك وجرّب تاني." };
+    }
+    const ids = await SupabaseProvider.getIdentities();
+    if (!ids.ok || !ids.identities.some((i) => i.provider === "google")) {
+      return { ok: false, mode: "link", kind: "link_unconfirmed", error: "مقدرناش نتأكد إن Google اتربط بحسابك. بص في «طرق تسجيل الدخول» في الإعدادات وجرّب تاني لو لسه مش مربوط." };
+    }
+    return { ok: true, mode: "link" };
+  }
 
   /** Fallback wait (seconds) for a "slow down" answer that does not say how long. */
   const DEFAULT_COOLDOWN_SECONDS = 60;
@@ -434,6 +589,33 @@ REBUILT.Auth = (function () {
     }
     if (code === "over_request_rate_limit" || status === 429 || msg.includes("rate limit") || msg.includes("too many") || msg.includes("security purposes")) {
       return make("rate", "طلبات كتير ورا بعض. استنى دقيقة وجرّب تاني.", { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
+    }
+
+    // ---- Google sign-in / linking ("oauth" = signing in, "link" = attaching Google to the signed-in account) ----
+    if (context === "oauth" || context === "link") {
+      const linking = context === "link";
+      if (code === "manual_linking_disabled" || msg.includes("manual linking") || msg.includes("linkuser")) {
+        return make("linking_disabled", "ربط Google لسه مش متفعّل في إعدادات السيرفر، فحسابك زي ما هو. كلّم صاحب الموقع.");
+      }
+      if (code === "identity_already_exists" || /already linked|identity.*already/.test(msg)) {
+        return make("identity_taken", "حساب Google ده مرتبط بحساب REBUILT تاني، فمش هنربطه هنا ومش هندمج الحسابين تلقائي. لو ده حسابك التاني: سجّل خروج وادخل بيه من «المتابعة باستخدام Google». أو اختار حساب Google مختلف.");
+      }
+      if (code === "provider_disabled" || code === "oauth_provider_not_supported" || /provider.*(not enabled|disabled)|unsupported provider/.test(msg)) {
+        return make("provider_disabled", "الدخول بـ Google لسه مش متفعّل على السيرفر. كمّل بالإيميل والباسورد دلوقتي، وكلّم صاحب الموقع.");
+      }
+      if (code === "provider_email_needs_verification" || msg.includes("unverified email")) {
+        return make("provider_email_unverified", "إيميل حساب Google ده مش متأكد عند Google، فمقدرناش نكمّل. أكّد الإيميل من Google وجرّب تاني.");
+      }
+      if (code === "access_denied" || msg.includes("access denied") || msg.includes("denied") || msg.includes("cancel")) {
+        return make("oauth_cancelled", linking ? "لغيت ربط Google. حسابك زي ما هو ومفيش حاجة اتغيّرت." : "لغيت الدخول بـ Google. تقدر تجرّب تاني أو تكمّل بالإيميل.");
+      }
+      if (code === "signup_disabled" || msg.includes("signups not allowed")) {
+        return make("signup_disabled", "إنشاء حسابات جديدة مقفول دلوقتي.");
+      }
+      if (!(msg.includes("failed to fetch") || msg.includes("network") || String(e.name || "") === "AuthRetryableFetchError")) {
+        const tagged = code ? " (كود: " + code + ")" : status ? " (" + status + ")" : "";
+        return make("oauth_failed", (linking ? "ربط Google ما اكتملش. حسابك زي ما هو، جرّب تاني." : "الدخول بـ Google ما اكتملش. جرّب تاني أو كمّل بالإيميل.") + tagged);
+      }
     }
 
     // ---- a recovery code that was typed (wrong, expired, already used or replaced by a newer one) ----
@@ -549,6 +731,15 @@ REBUILT.Auth = (function () {
     async updatePassword() {
       return { ok: false, localOnly: true, error: "تغيير الباسورد محتاج حساب متصل بالسيرفر." };
     },
+    async signInWithGoogle() {
+      return { ok: false, localOnly: true, error: "الدخول بـ Google محتاج اتصال بسيرفر REBUILT، وهو مش متاح دلوقتي." };
+    },
+    async linkGoogle() {
+      return { ok: false, localOnly: true, error: "ربط Google محتاج حساب متصل بالسيرفر." };
+    },
+    async getIdentities() {
+      return { ok: false, localOnly: true, identities: [], error: "طرق تسجيل الدخول محتاجة حساب متصل بالسيرفر." };
+    },
 
     async getSession(state) {
       return {
@@ -607,5 +798,10 @@ REBUILT.Auth = (function () {
     verifyRecoveryCode: (email, code) => provider().verifyRecoveryCode(email, code),
     updatePassword: (pw) => provider().updatePassword(pw),
     getSession: (state) => provider().getSession(state),
+    signInWithGoogle: () => provider().signInWithGoogle(),
+    linkGoogle: () => provider().linkGoogle(),
+    getIdentities: () => provider().getIdentities(),
+    consumeOAuthResult,
+    parseAuthReturn,
   };
 })();
