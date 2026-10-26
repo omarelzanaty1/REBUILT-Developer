@@ -196,6 +196,8 @@ from Google apart from an e-mail link, and report a cancelled or refused attempt
 | Symptom | Cause / check |
 |---|---|
 | «الدخول بـ Google لسه مش متفعّل على السيرفر» | The Google provider is off, or Client ID / Secret are missing in Supabase (step 2). |
+| A bare JSON page on `…supabase.co/auth/v1/authorize` saying `Unsupported provider: provider is not enabled` | Same cause (the Google provider is off). `signInWithOAuth` sends the browser straight to that address, so the app cannot catch it afterwards; since 0.4.4 it first reads `GET /auth/v1/settings` (`external.google`) and shows the Egyptian message inside the app instead. If that read fails for any reason the redirect still happens (fail-open). Supabase logs show it as `/authorize` → 400 `validation_failed`. |
+| Google's consent screen works but the browser lands on `localhost:3000` | Site URL is still the default and/or the address is not in Redirect URLs (see the URL Configuration row above). |
 | Google shows `redirect_uri_mismatch` | The redirect URI in the Google client is not exactly the Supabase callback URL (step 1.5). |
 | Google shows "access blocked / app not verified" | Audience is still *Testing* and the e-mail is not a test user — publish it (step 1.3). |
 | Returns to `localhost:3000` | The address the app was opened from is missing from Redirect URLs, so Supabase fell back to the Site URL (check the list above, including `https://getrebuilt.online/`). |
@@ -207,7 +209,7 @@ from Google apart from an e-mail link, and report a cancelled or refused attempt
 
 `index.html` carries `<meta name="rebuilt-build" content="…">` (also exposed as `<meta name="generator">`). View the
 page source of the host in question (or fetch its root page): the value shows which release that host is serving,
-independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`.
+independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`; the "is Google switched on?" preflight in `0.4.4 google-preflight`.
 
 ## Tests
 

@@ -323,6 +323,41 @@ REBUILT.Auth = (function () {
     return redirectUrlFor(window.location);
   }
 
+  /* ---------------- Is Google switched on in the Supabase project? ----------------
+     signInWithOAuth() does not call Supabase itself — it sends the BROWSER to /auth/v1/authorize. If the Google
+     provider is off in the dashboard, Supabase answers that navigation with a bare JSON page
+     ({"msg":"Unsupported provider: provider is not enabled"}) on the supabase.co address, outside the app, and
+     nothing in this code can catch it. So, before leaving, ask Supabase's public settings endpoint
+     (GET /auth/v1/settings, the same apikey as every other call; it lists `external: { google: true|false }`).
+     Only an explicit `false` stops the trip; anything else — a slow or failed request, a missing field, a
+     different response shape — is "unknown" and the normal redirect goes ahead, so this check can never
+     lock a working setup out. Read-only, no side effects. */
+  async function googleEnabled() {
+    const cfg = (REBUILT.SupabaseClient && REBUILT.SupabaseClient.CONFIG) || {};
+    if (!cfg.url || !cfg.anonKey || typeof fetch !== "function") return true;
+    let timer = null;
+    try {
+      const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+      if (ctrl) timer = setTimeout(() => ctrl.abort(), 4000);
+      const res = await fetch(cfg.url.replace(/\/+$/, "") + "/auth/v1/settings", {
+        headers: { apikey: cfg.anonKey },
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!res.ok) return true;
+      const body = await res.json();
+      return !(body && body.external && body.external.google === false);
+    } catch (err) {
+      return true;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** The same failure shape a Supabase "provider is not enabled" answer would map to (classifyError → provider_disabled). */
+  function googleOff(context) {
+    return failure({ code: "provider_disabled", message: "Unsupported provider: provider is not enabled" }, context);
+  }
+
   /* ---------------- Provider: Supabase (real auth) ---------------- */
 
   const SupabaseProvider = {
@@ -452,6 +487,7 @@ REBUILT.Auth = (function () {
     /** "Continue with Google" for someone who is signed out: a new account, or the one this Google identity already belongs to. */
     async signInWithGoogle() {
       const sb = REBUILT.SupabaseClient.get();
+      if (!(await googleEnabled())) return googleOff("oauth");   // stay in the app instead of landing on Supabase's raw JSON error page
       const options = { queryParams: { prompt: "select_account" } };
       const redirect = appRedirectUrl();
       if (redirect) options.redirectTo = redirect;
@@ -475,6 +511,7 @@ REBUILT.Auth = (function () {
       if (!cur || !cur.session) {
         return { ok: false, kind: "no_session", code: "no_session", limited: false, retryAfter: 0, error: "سجّل دخولك الأول، وبعدها اربط حساب Google." };
       }
+      if (!(await googleEnabled())) return googleOff("link");
       const options = { queryParams: { prompt: "select_account" } };
       const redirect = appRedirectUrl();
       if (redirect) options.redirectTo = redirect;

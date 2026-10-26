@@ -75,12 +75,14 @@ function loadAuth(location, client, extras) {
   sandbox.window = sandbox;
   if (extras && extras.storage) sandbox.sessionStorage = extras.storage;
   if (extras && extras.boot) sandbox.__REBUILT_BOOT_URL = extras.boot;
+  if (extras && extras.fetch) sandbox.fetch = extras.fetch;
+  if (extras && extras.abortController) { sandbox.AbortController = extras.abortController; sandbox.setTimeout = extras.setTimeout; sandbox.clearTimeout = () => {}; }
   sandbox.window.location = location || { origin: "https://omarelzanaty1.github.io", pathname: "/rebuilt0.4/", search: "", hash: "" };
   sandbox.history = { replaceState() {} };
   sandbox.location = sandbox.window.location;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, "js/auth.js"), "utf8"), sandbox, { filename: "js/auth.js" });
-  if (client) sandbox.REBUILT.SupabaseClient = { isAvailable: () => true, get: () => client };
+  if (client) sandbox.REBUILT.SupabaseClient = { isAvailable: () => true, get: () => client, CONFIG: extras && extras.config };
   return sandbox.REBUILT.Auth;
 }
 
@@ -168,7 +170,7 @@ test("index.html carries the build marker (how a host's live version is identifi
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const m = html.match(/<meta name="rebuilt-build" content="([^"]+)"\s*\/?>/);
   assert.ok(m, "rebuilt-build meta missing");
-  assert.ok(/google-auth/.test(m[1]), "marker should name the Google sign-in build, got: " + m[1]);
+  assert.ok(/google-(auth|preflight)/.test(m[1]), "marker should name the Google sign-in build, got: " + m[1]);
   assert.ok(/<meta name="generator" content="REBUILT [^"]*google-auth[^"]*"/.test(html), "generator meta should match");
 });
 
@@ -646,6 +648,89 @@ test("signInWithGoogle: a server refusal clears the marker and explains itself",
   const res = await auth.signInWithGoogle();
   assert.strictEqual(res.ok, false);
   assert.strictEqual(res.kind, "provider_disabled");
+  assert.strictEqual(store.getItem("rebuilt.oauth"), null);
+});
+
+/* ---- the "is Google switched on?" preflight (GET /auth/v1/settings → external.google) ---- */
+const SB_CFG = { url: "https://jvyhtpfedkypwdzyadba.supabase.co", anonKey: "sb_publishable_TEST" };
+const settingsFetch = (body, opts) => {
+  const seen = [];
+  const f = async (url, init) => {
+    seen.push({ url, init });
+    if (opts && opts.throws) throw new Error("Failed to fetch");
+    return { ok: !(opts && opts.status && opts.status >= 400), status: (opts && opts.status) || 200, json: async () => { if (opts && opts.badJson) throw new Error("not json"); return body; } };
+  };
+  f.seen = seen;
+  return f;
+};
+
+test("preflight: settings say Google is OFF → provider_disabled, nothing sent to Supabase Auth, no marker, never leaves the page", async () => {
+  const client = recordingClient();
+  const store = memStorage();
+  const f = settingsFetch({ external: { email: true, google: false } });
+  const auth = loadAuth(PROD_LOC, client, { storage: store, fetch: f, config: SB_CFG });
+  const res = await auth.signInWithGoogle();
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.kind, "provider_disabled");
+  assert.ok(/لسه مش متفعّل/.test(res.error));
+  assert.strictEqual(client.calls.length, 0, "signInWithOAuth is not called, so the browser is never sent to the raw JSON error page");
+  assert.strictEqual(store.getItem("rebuilt.oauth"), null);
+  assert.strictEqual(f.seen.length, 1);
+  assert.strictEqual(f.seen[0].url, "https://jvyhtpfedkypwdzyadba.supabase.co/auth/v1/settings");
+  assert.strictEqual(JSON.stringify(f.seen[0].init.headers), JSON.stringify({ apikey: "sb_publishable_TEST" }), "only the publishable key is sent");
+});
+
+test("preflight: settings say Google is ON → the normal OAuth call goes ahead", async () => {
+  const client = recordingClient();
+  const auth = loadAuth(PROD_LOC, client, { storage: memStorage(), fetch: settingsFetch({ external: { google: true } }), config: SB_CFG });
+  const res = await auth.signInWithGoogle();
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(client.calls.length, 1);
+  assert.strictEqual(client.calls[0].fn, "signInWithOAuth");
+});
+
+test("preflight is fail-open: anything but an explicit google:false lets the normal flow decide", async () => {
+  const cases = {
+    "request throws": settingsFetch({}, { throws: true }),
+    "HTTP 500": settingsFetch({ msg: "boom" }, { status: 500 }),
+    "body is not JSON": settingsFetch({}, { badJson: true }),
+    "no `external` field": settingsFetch({ disable_signup: false }),
+    "google missing": settingsFetch({ external: { email: true } }),
+    "google is null": settingsFetch({ external: { google: null } }),
+  };
+  for (const name of Object.keys(cases)) {
+    const client = recordingClient();
+    const auth = loadAuth(PROD_LOC, client, { storage: memStorage(), fetch: cases[name], config: SB_CFG });
+    const res = await auth.signInWithGoogle();
+    assert.strictEqual(res.ok, true, name);
+    assert.strictEqual(client.calls.length, 1, name);
+  }
+  // no fetch at all / no config (older browser, local mode stub) → unchanged behaviour
+  const c2 = recordingClient();
+  assert.strictEqual((await loadAuth(PROD_LOC, c2, { storage: memStorage() }).signInWithGoogle()).ok, true);
+  assert.strictEqual(c2.calls.length, 1);
+});
+
+test("preflight: a request that hangs is cut off by the timeout and does not block the redirect", async () => {
+  const client = recordingClient();
+  let aborted = false;
+  class FakeAbort { constructor() { this.signal = { __fake: true }; } abort() { aborted = true; } }
+  const hang = (url, init) => new Promise((resolve, reject) => { if (aborted) reject(new Error("aborted")); else setImmediate(() => (aborted ? reject(new Error("aborted")) : null)); });
+  const auth = loadAuth(PROD_LOC, client, { storage: memStorage(), fetch: hang, config: SB_CFG, abortController: FakeAbort, setTimeout: (fn) => { setImmediate(fn); return 1; } });
+  const res = await auth.signInWithGoogle();
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(aborted, true, "the timer aborted the request");
+  assert.strictEqual(client.calls.length, 1);
+});
+
+test("preflight: linking while Google is OFF → no linkIdentity, no marker, message in the app", async () => {
+  const client = recordingClient();
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store, fetch: settingsFetch({ external: { google: false } }), config: SB_CFG });
+  const res = await auth.linkGoogle();
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.kind, "provider_disabled");
+  assert.strictEqual(client.calls.length, 0);
   assert.strictEqual(store.getItem("rebuilt.oauth"), null);
 });
 
