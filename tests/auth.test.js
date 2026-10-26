@@ -171,7 +171,7 @@ test("index.html carries the build marker (how a host's live version is identifi
   const m = html.match(/<meta name="rebuilt-build" content="([^"]+)"\s*\/?>/);
   assert.ok(m, "rebuilt-build meta missing");
   assert.ok(/google-(auth|preflight)/.test(m[1]), "marker should name the Google sign-in build, got: " + m[1]);
-  assert.ok(/<meta name="generator" content="REBUILT [^"]*google-auth[^"]*"/.test(html), "generator meta should match");
+  assert.ok(/<meta name="generator" content="REBUILT [^"]*google-(auth|preflight)[^"]*"/.test(html), "generator meta should match");
 });
 
 test("the recovery screens never promise a link (the flow is code-based)", () => {
