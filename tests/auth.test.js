@@ -78,7 +78,7 @@ function loadAuth(location, client, extras) {
   if (extras && extras.fetch) sandbox.fetch = extras.fetch;
   if (extras && extras.abortController) { sandbox.AbortController = extras.abortController; sandbox.setTimeout = extras.setTimeout; sandbox.clearTimeout = () => {}; }
   sandbox.window.location = location || { origin: "https://omarelzanaty1.github.io", pathname: "/rebuilt0.4/", search: "", hash: "" };
-  sandbox.history = { replaceState() {} };
+  sandbox.history = (extras && extras.history) || { replaceState() {} };
   sandbox.location = sandbox.window.location;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(ROOT, "js/auth.js"), "utf8"), sandbox, { filename: "js/auth.js" });
@@ -100,6 +100,9 @@ function recordingClient(result) {
       verifyOtp: async (args) => { calls.push({ fn: "verifyOtp", args }); return reply(); },
       signInWithOAuth: async (args) => { calls.push({ fn: "signInWithOAuth", args }); return reply({ data: { provider: "google", url: "https://accounts.example/auth" } }); },
       linkIdentity: async (args) => { calls.push({ fn: "linkIdentity", args }); return reply({ data: { provider: "google", url: "https://accounts.example/auth" } }); },
+      signOut: async (args) => { calls.push({ fn: "signOut", args }); return { error: null }; },
+      getUser: async () => { calls.push({ fn: "getUser" }); return (result && result.getUserResult) || { data: { user: null }, error: { message: "Auth session missing!" } }; },
+      resend: async (args) => { calls.push({ fn: "resend", args }); return (result && result.resendResult) || { data: {}, error: null }; },
       getSession: async () => ({ data: { session: (result && result.session) === undefined ? { user: { id: "u1", email: "a@b.co", user_metadata: {} } } : result.session }, error: null }),
       getUserIdentities: async () => ({ data: { identities: (result && result.identities) || [] }, error: null }),
     },
@@ -170,8 +173,8 @@ test("index.html carries the build marker (how a host's live version is identifi
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const m = html.match(/<meta name="rebuilt-build" content="([^"]+)"\s*\/?>/);
   assert.ok(m, "rebuilt-build meta missing");
-  assert.ok(/google-(auth|preflight)/.test(m[1]), "marker should name the Google sign-in build, got: " + m[1]);
-  assert.ok(/<meta name="generator" content="REBUILT [^"]*google-(auth|preflight)[^"]*"/.test(html), "generator meta should match");
+  assert.ok(/^\d+\.\d+\.\d+ \S+ \d{4}-\d{2}-\d{2}$/.test(m[1]), "marker should look like '0.4.5 name 2026-10-26', got: " + m[1]);
+  assert.ok(html.includes('<meta name="generator" content="REBUILT ' + m[1] + '"'), "generator meta should match");
 });
 
 test("the recovery screens never promise a link (the flow is code-based)", () => {
@@ -587,8 +590,9 @@ test("parseAuthReturn: every shape of address is read as what it is", () => {
   const P = (hash, search, marker) => Auth.parseAuthReturn({ hash: hash || "", search: search || "" }, marker || null);
   const link = { mode: "link", uid: "u1" }, signin = { mode: "signin", uid: "" };
   assert.strictEqual(P("#access_token=x&type=recovery").kind, "recovery");
-  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired").kind, "recovery-error");
-  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=x", "", link).kind, "recovery-error", "an expired e-mail link stays an e-mail-link problem even with a marker around");
+  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired").kind, "link-error", "a stale e-mail link is not assumed to be a password-recovery link");
+  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&error_description=x", "", link).kind, "link-error", "an expired e-mail link stays an e-mail-link problem even with a marker around");
+  assert.strictEqual(P("#error=access_denied&error_code=otp_expired&type=recovery").kind, "recovery-error", "only a link that names itself recovery gets the recovery wording");
   const cancel = P("#error=access_denied&error_description=The+user+denied+access");
   assert.strictEqual(cancel.kind, "oauth-error");
   assert.strictEqual(cancel.mode, "signin");
@@ -604,6 +608,199 @@ test("parseAuthReturn: every shape of address is read as what it is", () => {
   assert.strictEqual(P("#access_token=x").kind, "none", "tokens with no marker are left to supabase-js, nothing is claimed");
   assert.strictEqual(P("").kind, "none");
   assert.strictEqual(P("#settings").kind, "none");
+});
+
+/* ============================================================
+   The sign-up confirmation e-mail: token_hash links, the older #access_token links, resend
+   ============================================================ */
+
+test("parseAuthReturn: the confirmation link shapes (and what is NOT accepted)", () => {
+  const P = (hash, search, marker) => Auth.parseAuthReturn({ hash: hash || "", search: search || "" }, marker || null);
+  const a = P("", "?token_hash=abc123&type=email");
+  assert.strictEqual(a.kind, "confirm-link");
+  assert.strictEqual(a.tokenHash, "abc123");
+  assert.strictEqual(a.type, "email");
+  assert.strictEqual(P("", "?token_hash=abc123&type=signup").kind, "confirm-link");
+  assert.strictEqual(P("#token_hash=abc123&type=email").kind, "confirm-link", "also when a mail client moves it into the fragment");
+  assert.strictEqual(P("", "?token_hash=abc123&type=recovery").kind, "none", "a recovery hash is never turned into a session by this path");
+  assert.strictEqual(P("", "?token_hash=abc123&type=magiclink").kind, "none");
+  assert.strictEqual(P("", "?token_hash=abc123").kind, "none", "no type → not a confirmation");
+  assert.strictEqual(P("", "?type=email").kind, "none", "no token → nothing to check");
+  assert.strictEqual(P("#access_token=x&refresh_token=y&type=signup").kind, "confirm-legacy");
+  assert.strictEqual(P("#access_token=x&type=signup", "", { mode: "signin", uid: "" }).kind, "confirm-legacy", "a confirmation is not mistaken for a Google return");
+  assert.strictEqual(P("#access_token=x&type=recovery").kind, "recovery");
+});
+
+const CONFIRM_LOC = (qs) => ({ origin: "https://getrebuilt.online", pathname: "/", search: qs || "", hash: "", href: "https://getrebuilt.online/" + (qs || "") });
+const spyHistory = () => { const h = { urls: [], replaceState(a, b, url) { h.urls.push(url); } }; return h; };
+const CONFIRMED_USER = { id: "u1", email: "omar@example.com", email_confirmed_at: "2026-10-26T10:00:00Z" };
+
+test("confirmation link: verifyOtp decides — success only after Supabase confirms, one-time session dropped, address cleaned", async () => {
+  const client = recordingClient({ data: { user: CONFIRMED_USER, session: { access_token: "t" } } });
+  const hist = spyHistory();
+  const auth = loadAuth(CONFIRM_LOC("?token_hash=abc123&type=email"), client, { storage: memStorage(), history: hist, boot: { hash: "", search: "?token_hash=abc123&type=email" } });
+  const r = await auth.consumeEmailLink();
+  assert.strictEqual(JSON.stringify(r), JSON.stringify({ ok: true, kind: "confirmed", email: "omar@example.com" }));
+  const v = client.calls.filter((c) => c.fn === "verifyOtp");
+  assert.strictEqual(v.length, 1);
+  assert.strictEqual(JSON.stringify(v[0].args), JSON.stringify({ token_hash: "abc123", type: "email" }));
+  const out = client.calls.filter((c) => c.fn === "signOut");
+  assert.strictEqual(out.length, 1);
+  assert.strictEqual(JSON.stringify(out[0].args), JSON.stringify({ scope: "local" }), "this device only — other sessions are untouched");
+  assert.strictEqual(hist.urls[hist.urls.length - 1], "/", "token_hash and type are gone from the address");
+  assert.strictEqual(await auth.consumeEmailLink(), null, "once only (a re-render or a second call can't verify twice)");
+  assert.strictEqual(client.calls.filter((c) => c.fn === "verifyOtp").length, 1);
+});
+
+test("confirmation link: an answer WITHOUT a confirmation time is never shown as success", async () => {
+  const client = recordingClient({ data: { user: { id: "u1", email: "omar@example.com", email_confirmed_at: null }, session: { access_token: "t" } } });
+  const auth = loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), client, { storage: memStorage(), history: spyHistory(), boot: { hash: "", search: "?token_hash=abc&type=email" } });
+  const r = await auth.consumeEmailLink();
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.kind, "unconfirmed");
+  assert.strictEqual(client.calls.filter((c) => c.fn === "signOut").length, 1, "and no session is kept");
+  const none = recordingClient({ data: { user: null, session: null } });
+  const auth2 = loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), none, { storage: memStorage(), history: spyHistory(), boot: { hash: "", search: "?token_hash=abc&type=email" } });
+  assert.strictEqual((await auth2.consumeEmailLink()).ok, false);
+});
+
+test("confirmation link: used / expired / invalid → \"expired\" (not success), address cleaned, no retry loop", async () => {
+  for (const err of [E(403, "otp_expired", "Email link is invalid or has expired"), E(403, "otp_expired", "Token has expired or is invalid"), E(400, "validation_failed", "Verify requires a verification type")]) {
+    const client = recordingClient({ data: { user: null, session: null }, error: err });
+    const hist = spyHistory();
+    const auth = loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), client, { storage: memStorage(), history: hist, boot: { hash: "", search: "?token_hash=abc&type=email" } });
+    const r = await auth.consumeEmailLink();
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.kind, "expired");
+    assert.ok(/اتستخدم قبل كده أو انتهت صلاحيته/.test(r.error));
+    assert.ok(!r.retry);
+    assert.strictEqual(hist.urls[hist.urls.length - 1], "/");
+    assert.strictEqual(await auth.consumeEmailLink(), null);
+  }
+});
+
+test("confirmation link: no connection / rate limit keep the link in the address so \"try again\" can check it again", async () => {
+  let n = 0;
+  const client = recordingClient();
+  client.auth.verifyOtp = async (args) => {
+    client.calls.push({ fn: "verifyOtp", args });
+    n += 1;
+    if (n === 1) return { data: { user: null, session: null }, error: E(0, "", "Failed to fetch", "AuthRetryableFetchError") };
+    if (n === 2) return { data: { user: null, session: null }, error: E(429, "over_request_rate_limit", "Request rate limit reached") };
+    return { data: { user: CONFIRMED_USER, session: { access_token: "t" } }, error: null };
+  };
+  const hist = spyHistory();
+  const auth = loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), client, { storage: memStorage(), history: hist, boot: { hash: "", search: "?token_hash=abc&type=email" } });
+  const r1 = await auth.consumeEmailLink();
+  assert.strictEqual(r1.kind, "network");
+  assert.strictEqual(r1.retry, true);
+  assert.strictEqual(hist.urls.length, 0, "address untouched");
+  const r2 = await auth.consumeEmailLink();
+  assert.strictEqual(r2.kind, "limited");
+  assert.strictEqual(r2.retry, true);
+  const r3 = await auth.consumeEmailLink();
+  assert.strictEqual(r3.ok, true);
+  assert.strictEqual(client.calls.filter((c) => c.fn === "verifyOtp").length, 3);
+  // a throw (offline fetch rejecting) is the same as a network answer
+  const thrower = recordingClient();
+  thrower.auth.verifyOtp = async () => { throw new Error("offline"); };
+  const auth2 = loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), thrower, { storage: memStorage(), history: spyHistory(), boot: { hash: "", search: "?token_hash=abc&type=email" } });
+  const r4 = await auth2.consumeEmailLink();
+  assert.strictEqual(r4.kind, "network");
+  assert.strictEqual(r4.retry, true);
+});
+
+test("older confirmation link (#access_token&type=signup): the SERVER is asked before saying confirmed", async () => {
+  const ok = recordingClient({ getUserResult: { data: { user: CONFIRMED_USER }, error: null } });
+  const auth = loadAuth(CONFIRM_LOC(""), ok, { storage: memStorage(), history: spyHistory(), boot: { hash: "#access_token=x&refresh_token=y&type=signup", search: "" } });
+  const r = await auth.consumeEmailLink();
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.email, "omar@example.com");
+  assert.strictEqual(ok.calls.filter((c) => c.fn === "getUser").length, 1);
+  assert.strictEqual(ok.calls.filter((c) => c.fn === "signOut").length, 1);
+  for (const res of [
+    { data: { user: { id: "u1", email: "x@y.co", email_confirmed_at: null } }, error: null },
+    { data: { user: null }, error: { message: "Auth session missing!" } },
+  ]) {
+    const c = recordingClient({ getUserResult: res });
+    const a = loadAuth(CONFIRM_LOC(""), c, { storage: memStorage(), history: spyHistory(), boot: { hash: "#access_token=x&type=signup", search: "" } });
+    assert.strictEqual(await a.consumeEmailLink(), null, "the server did not confirm → no success message");
+    assert.strictEqual(c.calls.filter((x) => x.fn === "signOut").length, 0, "and nothing is signed out behind the person's back");
+  }
+});
+
+test("a stale link (…#error=otp_expired) is described neutrally, with no network call; ordinary visits and local mode do nothing", async () => {
+  const client = recordingClient();
+  const auth = loadAuth(CONFIRM_LOC(""), client, { storage: memStorage(), history: spyHistory(), boot: { hash: "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", search: "" } });
+  const r = await auth.consumeEmailLink();
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.kind, "expired");
+  assert.strictEqual(client.calls.length, 0);
+  const plain = recordingClient();
+  assert.strictEqual(await loadAuth(CONFIRM_LOC(""), plain, { storage: memStorage(), boot: { hash: "", search: "" } }).consumeEmailLink(), null);
+  assert.strictEqual(plain.calls.length, 0);
+  // no Supabase client at all (local mode): nothing to verify, nothing claimed
+  assert.strictEqual(await loadAuth(CONFIRM_LOC("?token_hash=abc&type=email"), null, { storage: memStorage(), boot: { hash: "", search: "?token_hash=abc&type=email" } }).consumeEmailLink(), null);
+});
+
+test("resendConfirmation: signup type, the app's own address, one wait per address, honest limits", async () => {
+  const client = recordingClient();
+  const store = memStorage();
+  const auth = loadAuth(PROD_LOC, client, { storage: store });
+  const r = await auth.resendConfirmation("  omar@example.com ");
+  assert.strictEqual(r.ok, true);
+  const c = client.calls.filter((x) => x.fn === "resend");
+  assert.strictEqual(c.length, 1);
+  assert.strictEqual(JSON.stringify(c[0].args), JSON.stringify({ type: "signup", email: "omar@example.com", options: { emailRedirectTo: "https://rebuilt-jet.vercel.app/" } }));
+  const again = await auth.resendConfirmation("omar@example.com");
+  assert.strictEqual(again.ok, false);
+  assert.strictEqual(again.limited, true);
+  assert.ok(/استنى \d+ ثانية/.test(again.error) && /الرسالة/.test(again.error));
+  assert.strictEqual(client.calls.filter((x) => x.fn === "resend").length, 1, "the second press never reaches Supabase");
+  const bad = await auth.resendConfirmation("not-an-email");
+  assert.strictEqual(bad.ok, false);
+  assert.strictEqual(bad.code, "invalid_email");
+  assert.strictEqual(client.calls.filter((x) => x.fn === "resend").length, 1);
+});
+
+test("resendConfirmation: a server limit comes back as a wait, not as a crash; other addresses are counted separately", async () => {
+  const limited = recordingClient({ resendResult: { data: null, error: E(429, "over_email_send_rate_limit", "For security purposes, you can only request this after 42 seconds.") } });
+  const auth = loadAuth(PROD_LOC, limited, { storage: memStorage() });
+  const r = await auth.resendConfirmation("omar@example.com");
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.limited, true);
+  assert.strictEqual(r.retryAfter, 42);
+  // a failed send does not start the app's own wait, a different address has its own
+  assert.strictEqual(auth.Confirm.canSend("omar@example.com").ok, true);
+  const ok = recordingClient();
+  const auth2 = loadAuth(PROD_LOC, ok, { storage: memStorage() });
+  assert.strictEqual((await auth2.resendConfirmation("a@x.co")).ok, true);
+  assert.strictEqual((await auth2.resendConfirmation("b@x.co")).ok, true);
+});
+
+test("sign-up starts the \"send again\" wait; a refused sign-in for an unconfirmed address says what to do", async () => {
+  const client = recordingClient();
+  const auth = loadAuth(PROD_LOC, client, { storage: memStorage() });
+  const st = { user: {}, meta: {} };
+  const res = await auth.signUp(st, { name: "عمر", email: "omar@example.com", password: "12345678" });
+  assert.strictEqual(res.needsEmailConfirmation, true);
+  assert.strictEqual(auth.Confirm.canSend("omar@example.com").ok, false, "the e-mail just went out");
+  const nc = auth.classifyError(E(400, "email_not_confirmed", "Email not confirmed"));
+  assert.strictEqual(nc.kind, "not_confirmed");
+  assert.ok(/تأكد بريدك الإلكتروني/.test(nc.text) && /رسالة جديدة/.test(nc.text));
+});
+
+test("the screens: exact success wording, a resend button on every screen that needs one, link checked before the saved data loads", () => {
+  const gate = fs.readFileSync(path.join(ROOT, "js/gate.js"), "utf8");
+  const app = fs.readFileSync(path.join(ROOT, "js/app.js"), "utf8");
+  assert.ok(gate.includes("تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول دلوقتي."));
+  assert.ok(/id="resend-confirm-btn"/.test(gate) && /id="inline-resend"/.test(gate), "inbox screen, expired-link screen and the sign-in notice each offer «ابعت رسالة التأكيد تاني»");
+  assert.ok(/result\.kind === "not_confirmed"/.test(gate));
+  const init = app.slice(app.indexOf("async function init()"));
+  const i = init.indexOf("consumeEmailLink()");
+  const j = init.indexOf("Storage.load()");
+  assert.ok(i > 0 && j > 0 && i < j, "the one-time session from the link is settled before any saved data is loaded for it");
+  assert.ok(/emailLink/.test(app.slice(app.indexOf("Gate.start("), app.indexOf("Gate.start(") + 200)));
 });
 
 test("Google errors keep their own meaning (and the sign-in / link wording differs where it should)", () => {
@@ -841,12 +1038,18 @@ test("coming back from a Google sign-in: success needs no extra calls; not comin
   assert.strictEqual(stale.first, null, "a marker older than 15 minutes is ignored");
 });
 
-test("an e-mail-link error is still the recovery screen's business, not a Google failure", async () => {
+test("an e-mail-link error is the e-mail link's business (neutral wording), never a Google failure", async () => {
   const boot = { hash: "#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired", search: "" };
   const r = await comeBackFrom(boot, null);
-  assert.strictEqual(r.first, null);
+  assert.strictEqual(r.first, null, "not read as a Google result");
   const auth = loadAuth(PROD_LOC, recordingClient(), { storage: memStorage(), boot });
-  assert.strictEqual(auth.getRecovery().status, "error");
+  assert.strictEqual(auth.getRecovery().status, "none", "and not assumed to be a password-recovery link either");
+  const link = await auth.consumeEmailLink();
+  assert.strictEqual(link.ok, false);
+  assert.strictEqual(link.kind, "expired");
+  // a link that names itself as a recovery link keeps the recovery screen
+  const rec = loadAuth(PROD_LOC, recordingClient(), { storage: memStorage(), boot: { hash: "#error=access_denied&error_code=otp_expired&type=recovery", search: "" } });
+  assert.strictEqual(rec.getRecovery().status, "error");
 });
 
 test("getSession brings the name Google sent when the app has none yet", async () => {

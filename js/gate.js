@@ -5,6 +5,7 @@
      welcome → auth (sign up / sign in) → [confirm-email] → onboarding
      forgot → otp → reset → reset-done   (password recovery by an e-mailed code: request, type the code, new password)
      reset-expired                       (a legacy recovery link that is no longer valid)
+     confirm-problem                     (the sign-up confirmation link was used up / expired / could not be checked)
 
    Runs in #gate-root in front of the app shell and hands control back
    via onComplete() once the user has an account and has finished
@@ -54,6 +55,9 @@ REBUILT.Gate = (function () {
 
   let state, onComplete, ctx, step, authMode, draft, form, cooldownTimer;
   let pendingNotice = ""; // a message to show on the sign-in screen once (e.g. Google was cancelled)
+  let pendingTone = "danger";
+  let emailProblem = null; // why the confirmation link did not work (from Auth.consumeEmailLink)
+  const CONFIRMED_TEXT = "تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول دلوقتي.";
   let googleLeaving = false; // the browser is on its way to Google: ignore further clicks for a moment
 
   /* ---------------- Entry ---------------- */
@@ -65,6 +69,27 @@ REBUILT.Gate = (function () {
     authMode = "signup";
     form = { name: "", email: state.user.email || "" };
     resetDraft();
+
+    // 0) Back from the sign-up confirmation e-mail (already checked against Supabase by Auth.consumeEmailLink).
+    //    Confirmed → the sign-in screen with the success message and the address filled in. Not confirmed → say why.
+    //    Someone who is already signed in has no use for an old link, so it never gets in their way.
+    const link = ctx.emailLink;
+    emailProblem = null;
+    if (link && REBUILT.Auth.isRealAuth() && !state.meta.hasLocalAccount) {
+      if (link.ok) {
+        authMode = "signin";
+        step = "auth";
+        form.email = link.email || form.email;
+        pendingNotice = CONFIRMED_TEXT;
+        pendingTone = "success";
+        setAppHidden(true);
+        return render();
+      }
+      emailProblem = link;
+      step = "confirm-problem";
+      setAppHidden(true);
+      return render();
+    }
 
     // 1) A password-recovery visit always wins: the recovery link creates a session,
     //    and without this check the user would simply land inside the app.
@@ -80,6 +105,7 @@ REBUILT.Gate = (function () {
         authMode = "signin";
         step = "auth";
         pendingNotice = ctx.oauth.error || "";
+        pendingTone = "danger";
       }
     } else if (!state.meta.isOnboarded) {
       step = "onboard-basic";
@@ -153,6 +179,7 @@ REBUILT.Gate = (function () {
       case "welcome": return welcomeHTML();
       case "auth": return authHTML();
       case "confirm-email": return confirmEmailHTML();
+      case "confirm-problem": return confirmProblemHTML();
       case "forgot": return forgotHTML();
       case "otp": return otpHTML();
       case "reset": return resetHTML();
@@ -453,9 +480,45 @@ REBUILT.Gate = (function () {
         <h1 class="gate__title">بص في إيميلك</h1>
         <p class="gate__sub">بعتنا رسالة تأكيد على <bdi class="num-ltr">${esc(form.email)}</bdi>. افتحها واضغط على اللينك، وبعدها ارجع هنا وسجّل دخول.</p>
         <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions. ولو الإيميل ده مسجّل قبل كده (بالباسورد أو بـ Google)، سجّل دخولك أو اضغط «نسيت الباسورد».</p>
+        ${noticeSlot()}
         <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin-after-confirm">أكدت، يلا ندخل</button>
+        <button type="button" class="btn btn--secondary btn--block" id="resend-confirm-btn"><span>ابعت رسالة التأكيد تاني</span></button>
         <button type="button" class="btn btn--ghost btn--block" data-go="signup">استخدم إيميل تاني</button>
       </div>
+    `);
+  }
+
+  /** The confirmation link did not confirm anything — say which kind of problem it was and what to do next. */
+  function confirmProblemHTML() {
+    const p = emailProblem || { kind: "expired" };
+    if (p.kind === "network" || p.kind === "limited") {
+      return frame(`
+        <div class="gate__state">
+          <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
+          <h1 class="gate__title">التأكيد ما كملش</h1>
+          <p class="gate__sub">${esc(p.error || "مفيش اتصال بالنت دلوقتي.")} اللينك لسه ماتستخدمش، فجرّب تاني.</p>
+          ${noticeSlot()}
+          <button type="button" class="btn btn--primary btn--lg btn--block" id="confirm-retry" data-autofocus><span>جرّب تاني</span></button>
+          <button type="button" class="btn btn--ghost btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
+        </div>
+      `);
+    }
+    const sub = p.kind === "unconfirmed"
+      ? "مقدرناش نتأكد إن الإيميل اتأكد. اطلب رسالة تأكيد جديدة وافتح آخر رسالة توصلك."
+      : "اللينك ده اتستخدم قبل كده أو انتهت صلاحيته. لو أكدت إيميلك قبل كده، سجّل دخولك. لو لسه ماأكدتوش، اطلب رسالة تأكيد جديدة وافتح آخر رسالة توصلك. ولو كان لينك استعادة باسورد قديم، اطلب كود جديد.";
+    return frame(`
+      <div class="gate__state">
+        <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
+        <h1 class="gate__title">اللينك مش شغال</h1>
+        <p class="gate__sub">${sub}</p>
+      </div>
+      <form class="gate__form" id="resend-form" novalidate>
+        ${noticeSlot()}
+        ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="resend-confirm-btn"><span>ابعت رسالة التأكيد تاني</span></button>
+        <button type="button" class="btn btn--secondary btn--block" data-go="forgot">اطلب كود جديد للباسورد</button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="signin">سجّل دخولك</button>
+      </form>
     `);
   }
 
@@ -661,6 +724,8 @@ REBUILT.Gate = (function () {
     if (pw && qs("[data-strength]")) pw.addEventListener("input", () => updateStrength(pw.value));
 
     if (step === "auth") bindAuth();
+    if (step === "confirm-email") bindResendConfirm(qs("#resend-confirm-btn"), () => form.email);
+    if (step === "confirm-problem") bindConfirmProblem();
     if (step === "forgot") bindForgot();
     if (step === "otp") bindOtp();
     if (step === "reset") bindReset();
@@ -719,8 +784,9 @@ REBUILT.Gate = (function () {
     restoreButton(qs("#auth-submit"), authMode === "signup" ? "signup" : "signin");
 
     if (pendingNotice) {
-      showNotice("danger", esc(pendingNotice));
+      showNotice(pendingTone, esc(pendingNotice));
       pendingNotice = "";
+      pendingTone = "danger";
     }
 
     const googleBtn = qs("#google-btn");
@@ -785,7 +851,11 @@ REBUILT.Gate = (function () {
         // Wrong password is also what an account that only ever used Google looks like — a generic hint, so it reveals nothing.
         const hint = result.kind === "credentials" && !isSignup && REBUILT.Auth.isRealAuth()
           ? `<br/><span class="faint">لو حسابك اتعمل بـ Google، دوس «المتابعة باستخدام Google» فوق.</span>` : "";
-        showNotice("danger", esc(result.error), hint);
+        // "Confirm your e-mail first": the way forward is a new confirmation message, offered right here.
+        const needsConfirm = !isSignup && result.kind === "not_confirmed";
+        const resendHint = needsConfirm ? `<br/><button type="button" class="btn-link" id="inline-resend">ابعت رسالة التأكيد تاني</button><span class="resend-msg" id="inline-resend-msg" role="alert"></span>` : "";
+        showNotice("danger", esc(result.error), hint + resendHint);
+        if (needsConfirm) bindResendConfirm(qs("#inline-resend"), () => form.email, qs("#inline-resend-msg"));
         if (result.limited) startHold(key, result.retryAfter, submitBtn); // no point inviting another click right away
         return;
       }
@@ -808,6 +878,88 @@ REBUILT.Gate = (function () {
     const email = qs("#f-email");
     if (name) form.name = name.value;
     if (email) form.email = email.value;
+  }
+
+  /* ---------- Sign-up confirmation: send it again / try the link again ---------- */
+
+  /**
+   * «ابعت رسالة التأكيد تاني» — used by the "check your inbox" screen, the "link doesn't work" screen and the
+   * notice under a sign-in that was refused because the e-mail is not confirmed yet. One request at a time (runOnce),
+   * the same wait Supabase applies between two e-mails, and wording that never claims a message definitely went out:
+   * Supabase answers the same way for every address, so the screen cannot know.
+   */
+  function bindResendConfirm(btn, getEmail, msgEl) {
+    if (!btn) return;
+    restoreButton(btn, "resendconfirm");
+    const wait = REBUILT.Auth.Confirm.canSend(String(getEmail() || ""));
+    if (!wait.ok && wait.waitSeconds > holdSecondsLeft("resendconfirm")) startHold("resendconfirm", wait.waitSeconds, btn);
+
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (btn.disabled || inFlight.has("resendconfirm") || holdSecondsLeft("resendconfirm") > 0) return;
+      const email = String(getEmail() || "").trim();
+      if (email) form.email = email;
+      if (msgEl && msgEl.isConnected) msgEl.textContent = "";
+      else showNotice("", "");
+      const run = await runOnce("resendconfirm", btn, async () => {
+        try {
+          return await REBUILT.Auth.resendConfirmation(email);
+        } catch (err) {
+          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+        }
+      });
+      if (run.skipped) return;
+      const res = run.value;
+      if (!res.ok) {
+        // Under the sign-in notice the button must stay where it is (with its countdown), so a refusal is written
+        // next to it instead of replacing the whole notice.
+        if (res.code === "invalid_email") setFieldError("email", res.error);
+        else if (msgEl && msgEl.isConnected) msgEl.textContent = res.error;
+        else showNotice("danger", esc(res.error));
+        if (res.limited) startHold("resendconfirm", res.retryAfter, btn);
+        return;
+      }
+      showNotice("success", "لو الإيميل ده مسجّل ولسه مش مؤكد، هتوصلك رسالة تأكيد جديدة خلال دقيقة. بص في الـ Spam كمان، وافتح آخر رسالة وصلتك.");
+      startHold("resendconfirm", REBUILT.Auth.DEFAULT_COOLDOWN_SECONDS, btn);
+    });
+  }
+
+  function bindConfirmProblem() {
+    const form_ = qs("#resend-form");
+    if (form_) {
+      form_.addEventListener("submit", (e) => e.preventDefault());
+      bindResendConfirm(qs("#resend-confirm-btn"), () => (qs("#f-email") || {}).value || form.email);
+    }
+    const retry = qs("#confirm-retry");
+    if (!retry) return;
+    restoreButton(retry, "confirmretry");
+    retry.addEventListener("click", async () => {
+      if (retry.disabled || inFlight.has("confirmretry")) return;
+      showNotice("", "");
+      const run = await runOnce("confirmretry", retry, async () => {
+        try {
+          return await REBUILT.Auth.consumeEmailLink(); // the link is still in the address, so this checks it again
+        } catch (err) {
+          return { ok: false, kind: "network", retry: true, error: "مفيش اتصال بالنت دلوقتي." };
+        }
+      });
+      if (run.skipped) return;
+      const r = run.value;
+      if (r && r.ok) {
+        authMode = "signin";
+        step = "auth";
+        form.email = r.email || form.email;
+        pendingNotice = CONFIRMED_TEXT;
+        pendingTone = "success";
+        return render();
+      }
+      if (r && r.retry) {
+        showNotice("danger", esc(r.error || "مفيش اتصال بالنت دلوقتي."));
+        return;
+      }
+      emailProblem = r || { ok: false, kind: "expired" };
+      render();
+    });
   }
 
   /* ---------- Forgot / reset ---------- */

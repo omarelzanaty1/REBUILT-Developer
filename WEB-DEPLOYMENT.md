@@ -100,26 +100,61 @@ On top of those, the app keeps its own per-tab limits (`js/auth.js → RECOVERY_
 requests, **5 code requests per hour**, **5 wrong codes per request** (then a new code must be requested). They
 survive a refresh (sessionStorage) and are defence in depth only — they don't replace Supabase's checks.
 
-### What stays link-based: the sign-up confirmation e-mail
+### The sign-up confirmation e-mail — required settings (the app cannot do these, and cannot detect them)
 
-Confirming a new account still uses a link, so Supabase → Authentication → **URL Configuration** still matters
-(otherwise Supabase replaces the app's address with its Site URL, which on a new project is
-`http://localhost:3000` — that is how a link used to end on `ERR_CONNECTION_REFUSED`). Password recovery no longer
-depends on it.
+**What went wrong (2026-10-26, visible in Supabase → Logs):** the confirmation link in the e-mail read
+`…/auth/v1/verify?token=…&type=signup&redirect_to=http%3A%2F%2Flocalhost%3A3000`. The app *does* ask for its own
+address when signing up (`/auth/v1/signup?redirect_to=https://getrebuilt.online/`), but Supabase only honours a
+`redirect_to` that is on the **Redirect URLs** list; otherwise it silently writes the project's **Site URL** into the
+e-mail — and on a new project that is `http://localhost:3000` → `ERR_CONNECTION_REFUSED`. Nothing in the app's code
+can change that; it is two dashboard settings (below). To make the link independent of them anyway, the app now also
+understands a link that points straight at the site (step 2).
+
+#### 1. URL Configuration (required — Authentication → URL Configuration)
 
 | Setting | Value |
 |---|---|
-| **Site URL** | `https://rebuilt-jet.vercel.app/` |
-| **Redirect URLs** (add each) | `https://rebuilt-jet.vercel.app/`, and for every other address the app is opened from: `https://omarelzanaty1.github.io/rebuilt0.4/` and `https://getrebuilt.online/` |
+| **Site URL** | `https://getrebuilt.online` |
+| **Redirect URLs** (add each, keep the ones already there) | `https://getrebuilt.online/`, `https://rebuilt-jet.vercel.app/`, `https://omarelzanaty1.github.io/rebuilt0.4/` |
 
-Do not keep `http://localhost:3000` as the Site URL. A new host or a custom domain = one more entry in Redirect URLs
-(the app always asks to be sent back to the address it is opened from, `js/auth.js → redirectUrlFor`; an address that
-is not on the list is silently replaced by the Site URL — here the Vercel site — so someone using `getrebuilt.online` would
-come back on a different address and lose the session they started with).
-The sign-up link is **one-time**: after fixing the settings, sign up / resend again — an old link shows the
-"link not working" screen.
+Never leave `http://localhost:3000` as the Site URL. A new host or custom domain = one more Redirect URL (the app
+always asks to be sent back to the address it is opened from, `js/auth.js → redirectUrlFor`).
 
-Also in Supabase → Authentication: **Confirm email** ON; Email provider enabled.
+#### 2. "Confirm signup" template (recommended — Authentication → Emails → Confirm signup)
+
+Replace `{{ .ConfirmationURL }}` in the link with the site's own address and the token hash:
+
+```html
+<h2>Confirm your email address</h2>
+<p>Follow the link below to confirm this email address and finish signing up.</p>
+<p><a href="https://getrebuilt.online/?token_hash={{ .TokenHash }}&type=email">Confirm email address</a></p>
+```
+
+Why this form: the link opens the app directly (no hop through `supabase.co`, no redirect list involved), and the
+token is only checked when the page runs `verifyOtp` — a mail scanner that merely fetches the URL cannot use it up
+(the old `/verify?token=` links are one-time and are sometimes consumed by such scanners). Use the literal domain, not
+`{{ .SiteURL }}`, if you want it to keep working even when the Site URL is wrong. (Supabase's own docs use
+`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email` for server-rendered apps; this site is static, so the
+page is the root.) Also keep **Confirm email** ON and the Email provider enabled.
+
+#### What the app does with the link (js/auth.js → `consumeEmailLink`, js/gate.js)
+
+- `?token_hash=…&type=email` (or `signup`): `verifyOtp` is called once. «تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول
+  دلوقتي.» appears **only** if Supabase's answer carries a confirmation time. The one-time session that comes with the
+  link is dropped on that device (local sign-out only), the e-mail is filled into the sign-in form, and the person signs in
+  with the password. Other types (e.g. `recovery`) are ignored by this path.
+- The older `…#access_token=…&type=signup` link (what the default template produces once the URL settings are right) is
+  handled the same way, after asking the server (`getUser`) whether the address is confirmed.
+- A used / expired / unknown link, or an answer that does not confirm anything → «اللينك مش شغال» with the e-mail field
+  and «ابعت رسالة التأكيد تاني». No connection or a rate limit → «التأكيد ما كملش» + «جرّب تاني» (the link stays in the address
+  so it can be checked again). Someone already signed in is not interrupted by an old link.
+- «ابعت رسالة التأكيد تاني» (`supabase.auth.resend({ type: "signup" })`) exists on the "check your inbox" screen, on the
+  expired-link screen, and under the "confirm your e-mail first" message when a sign-in is refused. One request at a time,
+  60 s between two e-mails to one address, 5 per hour per tab, Supabase's own wait shown when it answers 429. The message never
+  promises that an e-mail was sent (Supabase answers the same for every address): "if this address is registered and not yet
+  confirmed, a new message will arrive". A newer message replaces the older one's link.
+- Accounts that signed up while the settings were wrong are simply unconfirmed: they can use «ابعت رسالة التأكيد تاني» from
+  the sign-in screen once step 1 (and ideally 2) is done. Nothing is confirmed or deleted on their behalf.
 
 ### If something goes wrong
 
@@ -170,7 +205,7 @@ from Google apart from an e-mail link, and report a cancelled or refused attempt
 | same | Client IDs / Client Secret | the two values from step 1 |
 | same | Skip nonce checks / Allow users without an email | OFF / OFF |
 | Authentication → Sign In / Providers (project-level auth options) | **Manual linking** ("Allow manual linking", beta) | **ON** — without it «ربط حساب Google» answers "not enabled" |
-| Authentication → URL Configuration | Site URL / Redirect URLs | Site URL `https://rebuilt-jet.vercel.app/`; Redirect URLs `https://rebuilt-jet.vercel.app/`, `https://omarelzanaty1.github.io/rebuilt0.4/`, **`https://getrebuilt.online/`** (new custom domain) |
+| Authentication → URL Configuration | Site URL / Redirect URLs | Site URL `https://getrebuilt.online`; Redirect URLs `https://getrebuilt.online/`, `https://rebuilt-jet.vercel.app/`, `https://omarelzanaty1.github.io/rebuilt0.4/` (same list as the confirmation e-mail above) |
 
 ### 3. What to expect (documented Supabase behaviour)
 
@@ -209,7 +244,7 @@ from Google apart from an e-mail link, and report a cancelled or refused attempt
 
 `index.html` carries `<meta name="rebuilt-build" content="…">` (also exposed as `<meta name="generator">`). View the
 page source of the host in question (or fetch its root page): the value shows which release that host is serving,
-independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`; the "is Google switched on?" preflight in `0.4.4 google-preflight`.
+independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`; the "is Google switched on?" preflight in `0.4.4 google-preflight`; token_hash confirmation links, the success/expired screens and «resend confirmation» in `0.4.5 confirm-email`.
 
 ## Tests
 
@@ -224,7 +259,7 @@ recovery starts sending a redirect target again or stops using `resetPasswordFor
 updateUser`; if a malformed code reaches Supabase; if the cooldown / hourly / wrong-code limits stop holding; if a
 Google secret or client id appears in the repository; if linking ever uses `signInWithOAuth` (or sign-in uses
 `linkIdentity`); if a return from Google (success, cancel, "already linked") is read wrongly; or if different Supabase
-errors collapse into one message again. It cannot check the Supabase or Google Cloud settings above and does not talk
+errors collapse into one message again; if a confirmation link is shown as success without Supabase confirming it, if a `recovery` token_hash is accepted as a confirmation, if a failed check (no connection, rate limit) burns the link, if the link's one-time session is left signed in, or if the resend button stops waiting between two e-mails. It cannot check the Supabase or Google Cloud settings above and does not talk
 to either of them.
 
 ## Fonts

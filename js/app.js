@@ -107,6 +107,17 @@ REBUILT.App = (function () {
 
   async function init() {
     REBUILT.Auth.watchAuthEvents();
+
+    // Back from the sign-up confirmation e-mail? Settle it FIRST: the link carries a one-time session that must
+    // never be adopted as a login (nor have the saved data loaded for it). The result decides what the gate shows.
+    let emailLink = null;
+    try {
+      emailLink = await REBUILT.Auth.consumeEmailLink();
+    } catch (err) {
+      console.warn("REBUILT: could not read the confirmation link", err);
+      emailLink = null;
+    }
+
     const saved = await REBUILT.Storage.load();
     state = saved || REBUILT.Data.buildEmptyState();
     migrateShape();
@@ -142,7 +153,7 @@ REBUILT.App = (function () {
       oauthResult = null;
     }
 
-    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState, oauth: oauthResult });
+    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState, oauth: oauthResult, emailLink });
   }
 
   /** Shown after the gate: a linking attempt lands on Settings (where the result is explained); other failures get a toast. */

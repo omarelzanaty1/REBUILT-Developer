@@ -103,9 +103,9 @@ REBUILT.Auth = (function () {
    * defence in depth and UX only: the enforcing limits are Supabase's (e-mail send quota, one e-mail per
    * address per minute, verification rate limit, code expiry). Stores no e-mail address, only a short hash.
    */
-  function createRecoveryGuard(store, clock, limits) {
+  function createRecoveryGuard(store, clock, limits, storageKey) {
     const L = limits || RECOVERY_LIMITS;
-    const KEY = "rebuilt.recoveryGuard";
+    const KEY = storageKey || "rebuilt.recoveryGuard";
     const now = () => (clock ? clock() : Date.now());
     const tag = (email) => {
       let h = 5381;
@@ -172,6 +172,10 @@ REBUILT.Auth = (function () {
   }
   const Recovery = createRecoveryGuard(tabStore());
 
+  /** "Send the confirmation e-mail again": the same per-address wait Supabase applies, and an hourly cap, counted apart from recovery codes. */
+  const CONFIRM_LIMITS = { resendCooldownSeconds: 60, sendsPerWindow: 5, windowSeconds: 3600, wrongCodesPerRequest: 5 };
+  const Confirm = createRecoveryGuard(tabStore(), null, CONFIRM_LIMITS, "rebuilt.confirmGuard");
+
   /** 0 (empty) … 3 (strong). A hint for the UI only — the server enforces the real rules. */
   function passwordStrength(pw) {
     const p = String(pw || "");
@@ -206,7 +210,10 @@ REBUILT.Auth = (function () {
   /* ---------------- Coming back from an e-mail link or from Google ----------------
      Every redirect back to the app lands on the same address, so the address alone says little:
        …#access_token=…&type=recovery        an old recovery link              → recovery
-       …#error=…&error_code=otp_expired      a stale e-mail link               → recovery-error
+       …#error=…&type=recovery               an old recovery link, expired     → recovery-error
+       …#error=…&error_code=otp_expired      a stale e-mail link (of any kind) → link-error
+       …?token_hash=…&type=email             the sign-up confirmation link     → confirm-link  (checked with verifyOtp)
+       …#access_token=…&type=signup          the older confirmation link       → confirm-legacy (Supabase checked it already)
        …#access_token=…  (+ our marker)      back from Google (sign-in / link) → oauth-ok
        …#error=access_denied  (or other)     Google cancelled / refused        → oauth-error
      "Our marker" is a short-lived flag in sessionStorage written just before the browser leaves for Google
@@ -238,14 +245,24 @@ REBUILT.Auth = (function () {
     const errCode = get("error_code");
     const errName = get("error");
     const desc = get("error_description");
-    const isRecoveryType = h.get("type") === "recovery";
+    const type = get("type");
+    const isRecoveryType = type === "recovery";
     if (errCode || errName) {
-      // An e-mail link that is no longer valid keeps its own screen; anything else is a failed sign-in elsewhere (Google).
-      const emailLink = isRecoveryType || /^otp_expired$/i.test(errCode) || /email link|recovery/i.test(desc);
-      if (emailLink) return { kind: "recovery-error", code: errCode || errName };
+      // A stale e-mail link keeps its own screen. The address says nothing about WHICH e-mail it came from (sign-up
+      // confirmation or an old recovery link look the same), so only a link that names itself "recovery" gets the
+      // recovery wording; every other one is described neutrally. Anything else is a failed sign-in elsewhere (Google).
+      const emailLink = /^otp_expired$/i.test(errCode) || /email link|recovery/i.test(desc);
+      if (isRecoveryType) return { kind: "recovery-error", code: errCode || errName };
+      if (emailLink) return { kind: "link-error", code: errCode || errName };
       return { kind: "oauth-error", mode: marker ? marker.mode : "signin", uid: marker ? marker.uid : "", code: errCode || errName, description: desc };
     }
+    // The confirmation e-mail's own link:  …/?token_hash=…&type=email  (checked by verifyOtp, see consumeEmailLink).
+    // Only the two sign-up types are accepted here; a recovery hash is never turned into a session by this path.
+    const tokenHash = q.get("token_hash") || h.get("token_hash") || "";
+    if (tokenHash && (type === "email" || type === "signup")) return { kind: "confirm-link", tokenHash, type };
     if (isRecoveryType && h.get("access_token")) return { kind: "recovery" };
+    // The older confirmation link: Supabase checked the token on its own server and sent the browser back with a session.
+    if (type === "signup" && h.get("access_token")) return { kind: "confirm-legacy" };
     if (marker && h.get("access_token")) return { kind: "oauth-ok", mode: marker.mode, uid: marker.uid };
     return { kind: "none" };
   }
@@ -379,11 +396,33 @@ REBUILT.Auth = (function () {
       // Email confirmation is ON, so signUp gives us a user but no session
       // until they click the link. Don't pretend they're signed in.
       if (!data.session) {
+        Confirm.noteSent(email.trim());   // the e-mail just went out: "send again" starts with its normal wait
         return { ok: true, needsEmailConfirmation: true, session: null };
       }
 
       state.meta.hasLocalAccount = true;
       return { ok: true, needsEmailConfirmation: false, session: data.session };
+    },
+
+    /**
+     * Send the sign-up confirmation e-mail again. Supabase answers the same way whether or not the address has an
+     * account or is already confirmed, so the screen must not promise that a message was sent — only that one
+     * will arrive if it applies. A newer message replaces the older one's link.
+     */
+    async resendConfirmation(email) {
+      const addr = String(email || "").trim();
+      const check = validateEmailOnly({ email: addr });
+      if (!check.valid) return { ok: false, error: check.errors.email || "اكتب الإيميل الصح الأول.", kind: "validation", code: "invalid_email", limited: false, retryAfter: 0 };
+      const gate = Confirm.canSend(addr);
+      if (!gate.ok) return clientLimit(gate, "message");
+      const sb = REBUILT.SupabaseClient.get();
+      const options = {};
+      const redirect = appRedirectUrl();
+      if (redirect) options.emailRedirectTo = redirect;
+      const { error } = await sb.auth.resend({ type: "signup", email: addr, options });
+      if (error) return failure(error);
+      Confirm.noteSent(addr);
+      return { ok: true };
     },
 
     async signIn(state, { email, password }) {
@@ -595,6 +634,91 @@ REBUILT.Auth = (function () {
     return { ok: true, mode: "link" };
   }
 
+  /* ---------------- The sign-up confirmation e-mail ----------------
+     Two shapes of link can arrive (see parseAuthReturn). Either way the page only says "confirmed" after
+     Supabase itself said so: for ?token_hash the app calls verifyOtp and reads the user's confirmation time from
+     the answer; for the older #access_token link it asks the server (getUser) rather than trusting the address.
+     Success never leaves a session behind: the one-time session that came with the link is dropped on this device
+     (local sign-out only — other devices are untouched) and the person signs in with their password, as the
+     message says. A used/expired link, a refused check or an unreachable server each get their own answer; a
+     failure that did not use the token up (no connection, rate limit) leaves the link in the address so
+     "try again" — or a refresh — can verify it again. */
+
+  let emailLinkDone = false;
+
+  /** Take the confirmation link's parameters (token, type, errors) out of the address bar. */
+  function cleanConfirmParams() {
+    try {
+      const u = new URL(window.location.href);
+      ["token_hash", "type", "error", "error_code", "error_description"].forEach((k) => u.searchParams.delete(k));
+      const hash = /access_token|error|token_hash|type=/.test(u.hash) ? "" : u.hash;
+      history.replaceState(null, "", u.pathname + u.search + hash);
+    } catch (err) { /* cosmetic only */ }
+  }
+
+  async function signOutHere(sb) {
+    try { await sb.auth.signOut({ scope: "local" }); } catch (err) { /* nothing was stored, nothing to undo */ }
+  }
+
+  const LINK_USED_TEXT = "اللينك ده اتستخدم قبل كده أو انتهت صلاحيته.";
+
+  /**
+   * Called once at start-up, BEFORE the saved state is loaded (a session created by the link must not be adopted).
+   * → null (not a confirmation visit, or nothing the server confirmed), or
+   *   { ok: true, kind: "confirmed", email }
+   *   { ok: false, kind: "expired" | "network" | "limited" | "unconfirmed", error, retry? }
+   */
+  async function consumeEmailLink() {
+    if (emailLinkDone) return null;
+    const r = authReturn;
+    if (r.kind !== "confirm-link" && r.kind !== "confirm-legacy" && r.kind !== "link-error") return null;
+
+    if (r.kind === "link-error") {
+      emailLinkDone = true;
+      cleanConfirmParams();
+      return { ok: false, kind: "expired", code: r.code, error: LINK_USED_TEXT };
+    }
+    if (!REBUILT.SupabaseClient || !REBUILT.SupabaseClient.isAvailable()) { emailLinkDone = true; return null; }
+    const sb = REBUILT.SupabaseClient.get();
+    const confirmedAt = (u) => !!(u && (u.email_confirmed_at || u.confirmed_at));
+
+    if (r.kind === "confirm-legacy") {
+      emailLinkDone = true;
+      let user = null;
+      try {
+        const res = await sb.auth.getUser();   // asks the server; the address alone proves nothing
+        user = res && !res.error && res.data ? res.data.user : null;
+      } catch (err) { /* unreachable → no claim */ }
+      cleanConfirmParams();
+      if (!confirmedAt(user)) return null;     // the server did not confirm it: no success message, normal start-up
+      await signOutHere(sb);
+      return { ok: true, kind: "confirmed", email: user.email || "" };
+    }
+
+    let res;
+    try {
+      res = await sb.auth.verifyOtp({ token_hash: r.tokenHash, type: r.type });
+    } catch (err) {
+      res = { data: null, error: { name: "AuthRetryableFetchError", status: 0, message: "Failed to fetch" } };
+    }
+    const error = res && res.error;
+    if (error) {
+      const c = classifyError(error, "confirm");
+      if (c.kind === "network" || c.limited) {
+        return { ok: false, kind: c.kind === "network" ? "network" : "limited", retry: true, error: c.text };
+      }
+      emailLinkDone = true;
+      cleanConfirmParams();
+      return { ok: false, kind: "expired", code: c.code, error: LINK_USED_TEXT };
+    }
+    emailLinkDone = true;
+    cleanConfirmParams();
+    const user = res && res.data ? res.data.user : null;
+    await signOutHere(sb);
+    if (!confirmedAt(user)) return { ok: false, kind: "unconfirmed", error: "مقدرناش نتأكد إن الإيميل اتأكد." };
+    return { ok: true, kind: "confirmed", email: user.email || "" };
+  }
+
   /** Fallback wait (seconds) for a "slow down" answer that does not say how long. */
   const DEFAULT_COOLDOWN_SECONDS = 60;
 
@@ -686,7 +810,7 @@ REBUILT.Auth = (function () {
     if (code === "otp_expired" || msg.includes("expired")) return make("expired", "اللينك أو الكود انتهت صلاحيته. اطلب واحد جديد.");
     if (msg.includes("auth session missing") || code === "session_not_found") return make("no_session", "الجلسة انتهت. اطلب كود جديد لاستعادة الباسورد.");
     if (code === "invalid_credentials" || msg.includes("invalid login credentials")) return make("credentials", "الإيميل أو الباسورد غلط.");
-    if (code === "email_not_confirmed" || msg.includes("email not confirmed")) return make("not_confirmed", "لسه مأكدتش الإيميل. بص في بريدك على رسالة التأكيد.");
+    if (code === "email_not_confirmed" || msg.includes("email not confirmed")) return make("not_confirmed", "لازم تأكد بريدك الإلكتروني الأول عشان تسجّل دخولك. افتح رسالة التأكيد اللي بعتناها لك، أو اطلب رسالة جديدة.");
 
     // ---- connection ----
     if (msg.includes("failed to fetch") || msg.includes("network") || String(e.name || "") === "AuthRetryableFetchError") {
@@ -704,11 +828,12 @@ REBUILT.Auth = (function () {
   }
 
   /** The app's own pause (cooldown / hourly cap) in the same shape as a server rate-limit result. */
-  function clientLimit(gate) {
+  function clientLimit(gate, what) {
     const mins = Math.ceil(gate.waitSeconds / 60);
+    const msg = what === "message";   // "ask for the confirmation e-mail again" instead of "ask for a code"
     const text = gate.reason === "cooldown"
-      ? "استنى " + gate.waitSeconds + " ثانية وبعدين اطلب كود تاني."
-      : "طلبت أكواد كتير. جرّب تاني بعد حوالي " + mins + " دقيقة.";
+      ? "استنى " + gate.waitSeconds + (msg ? " ثانية وبعدين اطلب الرسالة تاني." : " ثانية وبعدين اطلب كود تاني.")
+      : (msg ? "طلبت رسايل كتير. جرّب تاني بعد حوالي " + mins + " دقيقة." : "طلبت أكواد كتير. جرّب تاني بعد حوالي " + mins + " دقيقة.");
     return { ok: false, error: text, kind: "client_" + gate.reason, code: "client_rate_limit", limited: true, retryAfter: gate.waitSeconds };
   }
 
@@ -755,6 +880,10 @@ REBUILT.Auth = (function () {
 
     async signOut(state) {
       state.meta.hasLocalAccount = false;
+    },
+
+    async resendConfirmation() {
+      return { ok: false, error: "مفيش سيرفر متصل دلوقتي، فمفيش رسالة تأكيد تتبعت.", kind: "local", code: "local_mode", limited: false, retryAfter: 0 };
     },
 
     /* No server → no e-mail can be sent and no password exists to change.
@@ -819,6 +948,7 @@ REBUILT.Auth = (function () {
     clearRecovery,
     markResetPending,
     Recovery,
+    Confirm,
     createRecoveryGuard,
     RECOVERY_LIMITS,
     watchAuthEvents,
@@ -839,6 +969,8 @@ REBUILT.Auth = (function () {
     linkGoogle: () => provider().linkGoogle(),
     getIdentities: () => provider().getIdentities(),
     consumeOAuthResult,
+    consumeEmailLink,
+    resendConfirmation: (email) => provider().resendConfirmation(email),
     parseAuthReturn,
   };
 })();
