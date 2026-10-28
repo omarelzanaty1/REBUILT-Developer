@@ -129,7 +129,12 @@ test("no shipped file mentions localhost:3000", () => {
 
 test("no shipped file points at a local address (localhost / 127.0.0.1 / 0.0.0.0 / [::1])", () => {
   const hits = files
-    .filter((f) => /\b(localhost|127\.0\.0\.1|0\.0\.0\.0)\b|\[::1\]/i.test(fs.readFileSync(f, "utf8")))
+    .filter((f) => {
+      let src = fs.readFileSync(f, "utf8");
+      // channelFor() has to NAME the local hosts to recognise them (it classifies, it never points at one).
+      if (rel(f) === "js/supabaseClient.js") src = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/function channelFor[\s\S]*?\n  }\n/, "");
+      return /\b(localhost|127\.0\.0\.1|0\.0\.0\.0)\b|\[::1\]/i.test(src);
+    })
     .map(rel);
   assert.deepStrictEqual(hits, []);
 });
@@ -1105,6 +1110,141 @@ test("the settings page offers linking only through Auth.linkGoogle (never signI
 test("the app never creates profile rows itself (the sign-up trigger does, once per auth user)", () => {
   const data = fs.readFileSync(path.join(ROOT, "js/supabaseData.js"), "utf8");
   assert.ok(!/from\("(profiles|user_profiles|ai_profiles)"\)\s*\.\s*(insert|upsert)/.test(data.replace(/\s+/g, " ")), "no client-side insert/upsert on the profile tables");
+});
+
+/* ============================================================
+   Environments: which backend each address may use
+   ============================================================ */
+
+/** Load js/supabaseClient.js as the browser would on a given address, with a recording stand-in for the page. */
+function loadClient(hostname, pathname, opts) {
+  opts = opts || {};
+  const created = [];
+  const head = [];
+  const attrs = {};
+  const sandbox = { console: { warn() {}, log() {}, error() {}, table() {} }, Object };
+  sandbox.window = sandbox;
+  sandbox.window.location = { hostname, pathname: pathname || "/", host: hostname };
+  sandbox.document = {
+    querySelector: (sel) => (sel === 'meta[name="rebuilt-build"]' && opts.marker ? { getAttribute: () => opts.marker } : null),
+    createElement: () => ({}),
+    head: { appendChild: (el) => head.push(el) },
+    documentElement: { setAttribute: (k, v) => { attrs[k] = v; } },
+  };
+  sandbox.REBUILT = {};
+  if (opts.lib !== false) sandbox.supabase = { createClient: (url, key, cfg) => { created.push({ url, key, cfg }); return { fake: true }; } };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, "js/supabaseClient.js"), "utf8"), sandbox, { filename: "js/supabaseClient.js" });
+  return { SC: sandbox.REBUILT.SupabaseClient, created, head, attrs, window: sandbox };
+}
+const PROD_URL = "https://jvyhtpfedkypwdzyadba.supabase.co";
+
+test("channelFor: the official addresses are stable, the development site is development", () => {
+  const c = loadClient("localhost", "/").SC.channelFor;
+  const cases = [
+    ["getrebuilt.online", "/", "stable"],
+    ["www.getrebuilt.online", "/", "stable"],
+    ["GetRebuilt.Online", "/index.html", "stable"],
+    ["omarelzanaty1.github.io", "/rebuilt0.4/", "stable"],
+    ["omarelzanaty1.github.io", "/rebuilt0.4", "stable"],
+    ["omarelzanaty1.github.io", "/REBUILT-Developer/", "development"],
+    ["omarelzanaty1.github.io", "/REBUILT-Developer", "development"],
+    ["omarelzanaty1.github.io", "/rebuilt-developer/index.html", "development"],
+    ["rebuilt-jet.vercel.app", "/", "development"],
+    ["rebuilt-git-main-rebuilt1.vercel.app", "/", "development"],
+    ["localhost", "/", "local"],
+    ["127.0.0.1", "/", "local"],
+    ["[::1]", "/", "local"],
+    ["", "", "local"],
+    ["omarelzanaty1.github.io", "/", "unknown"],
+    ["omarelzanaty1.github.io", "/rebuilt0.4-copy/", "unknown"],
+    ["omarelzanaty1.github.io", "/rebuilt0.4evil/", "unknown"],
+    ["getrebuilt.online.evil.example", "/", "unknown"],
+    ["evilgetrebuilt.online", "/", "unknown"],
+    ["example.com", "/rebuilt0.4/", "unknown"],
+    ["someone-else.github.io", "/rebuilt0.4/", "unknown"],
+  ];
+  cases.forEach(([h, p, want]) => assert.strictEqual(c(h, p), want, h + p));
+});
+
+test("only the stable channel may use the production Supabase project", () => {
+  const addresses = [
+    ["getrebuilt.online", "/", true],
+    ["omarelzanaty1.github.io", "/rebuilt0.4/", true],
+    ["omarelzanaty1.github.io", "/REBUILT-Developer/", false],
+    ["rebuilt-jet.vercel.app", "/", false],
+    ["localhost", "/", false],
+    ["127.0.0.1", "/", false],
+    ["example.com", "/", false],
+    ["getrebuilt.online.evil.example", "/", false],
+  ];
+  addresses.forEach(([h, p, prod]) => {
+    const { SC, created } = loadClient(h, p);
+    assert.strictEqual(SC.CONFIG.url === PROD_URL, prod, h + p + " → " + SC.CONFIG.url);
+    SC.init();
+    created.forEach((c) => assert.strictEqual(c.url === PROD_URL, prod, "createClient on " + h + p));
+  });
+});
+
+test("development with no development project configured stays in local mode: no Supabase client, no request", () => {
+  ["omarelzanaty1.github.io/REBUILT-Developer/", "localhost/", "rebuilt-jet.vercel.app/"].forEach((a) => {
+    const i = a.indexOf("/");
+    const { SC, created } = loadClient(a.slice(0, i), a.slice(i));
+    assert.strictEqual(SC.PROFILES.development.url, "", "the development entry must be empty until the development project exists (" + a + ")");
+    assert.strictEqual(SC.init(), null);
+    assert.strictEqual(SC.isAvailable(), false);
+    assert.strictEqual(created.length, 0, "createClient must not run on " + a);
+    assert.ok(/development project|configured for the/.test(SC.getError()), SC.getError());
+  });
+});
+
+test("the development profile never holds the production project (url or key)", () => {
+  const { SC } = loadClient("localhost", "/");
+  assert.notStrictEqual(SC.PROFILES.development.url, PROD_URL);
+  assert.notStrictEqual(SC.PROFILES.development.anonKey, SC.PROFILES.stable.anonKey);
+  assert.ok(!/service_role|sb_secret_/i.test(JSON.stringify(SC.PROFILES)));
+  const dev = SC.PROFILES.development;
+  assert.ok((!dev.url && !dev.anonKey) || (/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(dev.url) && /^sb_publishable_/.test(dev.anonKey)), "a filled development profile needs a project URL and a publishable key");
+});
+
+test("the stable channel still creates the production client with the implicit flow (nothing changed for real users)", () => {
+  const { SC, created } = loadClient("getrebuilt.online", "/");
+  assert.ok(SC.init(), "client should be created");
+  assert.strictEqual(created.length, 1);
+  assert.strictEqual(created[0].url, PROD_URL);
+  assert.ok(/^sb_publishable_/.test(created[0].key));
+  assert.strictEqual(created[0].cfg.auth.flowType, "implicit");
+  assert.strictEqual(created[0].cfg.auth.detectSessionInUrl, true);
+});
+
+test("diagnose() reports the build, the channel and which backend the page uses", () => {
+  const prod = loadClient("getrebuilt.online", "/", { marker: "0.4.6 dev-split 2026-10-29" });
+  const d = prod.SC.diagnose();
+  assert.strictEqual(d.build, "0.4.6 dev-split 2026-10-29");
+  assert.strictEqual(d.channel, "stable");
+  assert.strictEqual(d.backend, "production project");
+  assert.strictEqual(d.host, "getrebuilt.online");
+  const dev = loadClient("omarelzanaty1.github.io", "/REBUILT-Developer/", { marker: "0.4.6 dev-split 2026-10-29" }).SC.diagnose();
+  assert.strictEqual(dev.channel, "development");
+  assert.strictEqual(dev.backend, "none yet (local mode)");
+  assert.ok(String(dev.reasonIfLocal).length > 0);
+});
+
+test("development pages ask search engines to stay away; stable pages do not", () => {
+  const dev = loadClient("omarelzanaty1.github.io", "/REBUILT-Developer/");
+  assert.strictEqual(dev.attrs["data-channel"], "development");
+  assert.ok(dev.head.some((m) => m.name === "robots" && /noindex/.test(m.content)), "no robots noindex meta on development");
+  const stable = loadClient("getrebuilt.online", "/");
+  assert.strictEqual(stable.attrs["data-channel"], "stable");
+  assert.strictEqual(stable.head.length, 0, "stable must not get a noindex meta");
+});
+
+test("the retired CDN-free path: supabaseClient.js has no other place that names a Supabase project", () => {
+  const offenders = files
+    .filter((f) => rel(f) !== "js/supabaseClient.js")
+    .filter((f) => /[a-z0-9]{20}\.supabase\.co/.test(fs.readFileSync(f, "utf8")))
+    .map(rel);
+  assert.deepStrictEqual(offenders, [], "the backend is chosen in one place only");
 });
 
 runAll();
