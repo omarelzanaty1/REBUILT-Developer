@@ -6,18 +6,20 @@ sub-path (GitHub Pages `/rebuilt0.4/`).
 
 ## Where it is served
 
-| Host | Address | Deployed from |
-|---|---|---|
-| **Vercel** (the one in use) | `https://rebuilt-jet.vercel.app/` | project `rebuilt` (team `rebuilt1`) ← this repository, branch `main` |
-| GitHub Pages | `https://omarelzanaty1.github.io/rebuilt0.4/` | this repository, branch `main` (Actions workflow) |
-| GitHub Pages, custom domain | `https://getrebuilt.online/` | the `CNAME` file on `main` (added by the owner on 2026-10-25). Needs its DNS records and the domain set under Settings → Pages; once active, GitHub redirects the `github.io` address to it |
+**This is the Development repository** (`omarelzanaty1/REBUILT-Developer`, private). Two environments exist and they are
+kept apart — read [`docs/ENVIRONMENTS.md`](docs/ENVIRONMENTS.md) first.
 
-Each host publishes `main` on its own. A change reaches a host only after that host has built it — check the
-commit's checks on GitHub (the **Vercel** status and the Pages workflow), and see "Which version is live?" below.
+| Environment | Repository | Address | Deployed by |
+|---|---|---|---|
+| **Development** (this repository) | `omarelzanaty1/REBUILT-Developer` (private) | `https://omarelzanaty1.github.io/REBUILT-Developer/` | `.github/workflows/pages.yml` on every push to `main`, after the tests pass; publishes only the files in `scripts/site-files.txt` |
+| **Stable** (official, for users) | `omarelzanaty1/rebuilt0.4` (public) | `https://getrebuilt.online/` (also `https://omarelzanaty1.github.io/rebuilt0.4/`) | GitHub Pages from that repository's `main` + its `CNAME`. Changed **only** by `scripts/release.sh promote`, after explicit approval |
+| Vercel (`rebuilt-jet.vercel.app`) | — | being retired; no longer the Development source | still builds `rebuilt0.4` `main` until disconnected (see docs/ENVIRONMENTS.md §10) |
 
-**Vercel project settings** (Project → Settings): Framework Preset **Other**, Build Command **empty**, Output
-Directory **empty** (the root), Install Command **empty**, Production Branch **main**. No Environment Variables are
-needed or read: the Supabase URL and the *publishable* key are literals in `js/supabaseClient.js`.
+There is deliberately **no `CNAME` file in this repository**: the official domain belongs to the Stable repository only.
+Pushing here can never change `getrebuilt.online`.
+
+Nothing in this repository needs a build step or environment variables: the Supabase URL and the *publishable* key are
+literals in `js/supabaseClient.js`, one profile per environment.
 
 ## What's in here
 
@@ -27,20 +29,30 @@ needed or read: the Supabase URL and the *publishable* key are literals in `js/s
 - `sw.js` — a retired service worker (kill switch). The app does not register any service worker; this file only
   clears the caches of an older cache-first worker so browsers that installed it pick up new deployments.
   Leave it in place; it can be deleted once you're sure no old browser still has the old worker.
-- `tests/auth.test.js` — dependency-free checks (see "Tests").
+- `tests/auth.test.js`, `tests/dev-repo.test.js`, `tests/release.test.js` — dependency-free checks (see "Tests").
+- `tests/browser/` — the browser suites (Playwright) and the Full Regression Sweep runner (`run-all.sh`).
+- `supabase/` — the database: numbered SQL files, the applied migrations, and the read-only schema signature. **Never published.**
+- `scripts/` — `release.sh` (promote to Stable / roll back) and `site-files.txt` (the only files that are published).
+- `docs/ENVIRONMENTS.md` — Development vs Stable, release and rollback, Supabase per environment.
 
 ## Backend
 
-- Supabase project `jvyhtpfedkypwdzyadba` (organization `rebuilt`) for auth and data. It is independent of every other
-  project. `js/supabaseClient.js` holds the project URL and the **publishable** key only — that key is meant to be
-  public; access is enforced by row-level security. Never put a Secret key, a `service_role` key or the database
-  password in any file of this repository.
-- The database is created from the numbered SQL files shipped separately (`REBUILT-supabase-sql.zip`, run in the
-  order its README gives). They are deliberately **not** part of this folder so the schema is not served publicly.
+- **Which Supabase project a page uses is decided in `js/supabaseClient.js` from the address it was loaded from.**
+  Only `getrebuilt.online` (and the official `github.io/rebuilt0.4/` address) use the production project
+  `jvyhtpfedkypwdzyadba` (organization `rebuilt`). Every other address — this repository's Development site,
+  `localhost`, anything unknown — uses the `development` profile, which is **empty until a development project exists**;
+  the app then runs in its browser-only local mode and sends no request to Supabase. See docs/ENVIRONMENTS.md §9 for the
+  plan to create `REBUILT-Dev`.
+- The file holds the project URL and the **publishable** key only — meant to be public; access is enforced by row-level
+  security. Never put a Secret key, a `service_role` key or the database password in any file of this repository.
+- The database is described by `supabase/` (SQL files in the order given in `supabase/README.md`, plus the migrations as
+  applied to production). It is not part of the published site.
 - Passwords: the app requires **at least 8 characters** (sign-up, reset, settings). Also set
   Supabase → Authentication → minimum password length = 8 so the server enforces the same rule.
 - Free-plan projects are paused after about a week of inactivity; sign-in and sync fail until it is resumed.
 - REBUILT AI is "Coming Soon": the page makes no model calls and the app needs no AI key.
+- Settings below that mention `rebuilt-jet.vercel.app` or `github.io/rebuilt0.4/` describe the **production** project
+  (Site URL / Redirect URLs); the development project gets its own (docs/ENVIRONMENTS.md §9).
 
 ## Password recovery by e-mailed code — required Supabase settings
 
@@ -244,17 +256,20 @@ from Google apart from an e-mail link, and report a cancelled or refused attempt
 
 `index.html` carries `<meta name="rebuilt-build" content="…">` (also exposed as `<meta name="generator">`). View the
 page source of the host in question (or fetch its root page): the value shows which release that host is serving,
-independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`; the "is Google switched on?" preflight in `0.4.4 google-preflight`; token_hash confirmation links, the success/expired screens and «resend confirmation» in `0.4.5 confirm-email`.
+independent of what GitHub shows. Code-based recovery arrived in build `0.4.2 otp-reset`; Google sign-in and linking in `0.4.3 google-auth`; the "is Google switched on?" preflight in `0.4.4 google-preflight`; token_hash confirmation links, the success/expired screens and «resend confirmation» in `0.4.5 confirm-email`. The environment split — channel-based backend, Development repository — arrived in `0.4.6 dev-split`. `REBUILT.diagnose()` in the console prints the build, the channel (`stable` / `development` / `local` / `unknown`), the host and which backend is in use.
 
 ## Tests
 
 ```
-node tests/auth.test.js
+node tests/auth.test.js          # unit checks (no dependencies, no network)
+node tests/dev-repo.test.js      # repository guards: no CNAME, only site files published, no secrets, SQL pack complete
+node tests/release.test.js       # promote / rollback, on throw-away local repositories
+bash tests/browser/run-all.sh    # Full Regression Sweep (Playwright; browser suites run against an in-browser test double)
 ```
 
-No dependencies, no network. It fails if any shipped file points at a local address (`localhost:3000` included) or
+The first three need no dependencies and no network (the browser suites need Playwright). Together they fail if any shipped file points at a local address (`localhost:3000` included) or
 carries a secret key; if the sign-up redirect target is not the canonical published address
-(`https://omarelzanaty1.github.io/rebuilt0.4/`, `https://rebuilt-jet.vercel.app/` for the hosts above); if password
+(`https://omarelzanaty1.github.io/rebuilt0.4/`); if a page is served from a non-official address but would use the production project, or a development address ever creates a Supabase client; if password
 recovery starts sending a redirect target again or stops using `resetPasswordForEmail → verifyOtp(type "recovery") →
 updateUser`; if a malformed code reaches Supabase; if the cooldown / hourly / wrong-code limits stop holding; if a
 Google secret or client id appears in the repository; if linking ever uses `signInWithOAuth` (or sign-in uses
