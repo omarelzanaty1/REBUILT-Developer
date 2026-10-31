@@ -1,0 +1,59 @@
+# Publishes the DEVELOPMENT site of REBUILT to GitHub Pages of THIS repository (private) — nothing else.
+#   - runs the unit tests first; a failing test stops the deployment
+#   - publishes only the files listed in scripts/site-files.txt (never supabase/, tests/, docs/, scripts/)
+#   - never touches the official site: that lives in another repository (omarelzanaty1/rebuilt0.4) and is only
+#     changed by scripts/release.sh after explicit approval (docs/ENVIRONMENTS.md)
+# One-time manual setting (cannot be done from a file): Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+name: Deploy development site (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Unit tests
+        run: node tests/auth.test.js
+      - name: Repository guards (no official domain here, only site files are published, no secrets)
+        run: node tests/dev-repo.test.js
+      - name: Release-script tests (local throw-away repositories)
+        run: node tests/release.test.js
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site (only what the browser needs)
+        run: |
+          mkdir _site
+          grep -v '^[[:space:]]*\(#\|$\)' scripts/site-files.txt | xargs -I{} cp -r {} _site/
+          touch _site/.nojekyll
+          test ! -e _site/CNAME   # the official domain must never be published from here
+          echo "Publishing build marker:"; grep -o '<meta name="rebuilt-build" content="[^"]*"' _site/index.html
+          ls -R _site | head -n 60
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
