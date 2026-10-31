@@ -1,9 +1,19 @@
-# Publishes the DEVELOPMENT site of REBUILT to GitHub Pages of THIS repository (private) — nothing else.
-#   - runs the unit tests first; a failing test stops the deployment
-#   - publishes only the files listed in scripts/site-files.txt (never supabase/, tests/, docs/, scripts/)
-#   - never touches the official site: that lives in another repository (omarelzanaty1/rebuilt0.4) and is only
-#     changed by scripts/release.sh after explicit approval (docs/ENVIRONMENTS.md)
-# One-time manual setting (cannot be done from a file): Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Publishes the DEVELOPMENT (preview) site of REBUILT to GitHub Pages of THIS repository — nothing else.
+#
+#   Developer (push to main) -> GitHub Actions -> Preview website -> your review -> your approval -> Stable
+#
+#   test    unit + repository-guard + release-script tests; a failing test stops everything after it
+#   build   assembles the site from the files listed in scripts/site-files.txt ONLY (never supabase/, tests/,
+#           docs/, scripts/, .github/), checks it, and uploads it as the Pages artifact
+#   deploy  publishes that artifact to this repository's own Pages site (needs the one-time setting below)
+#   verify  fetches the published address and checks the build marker, and that nothing private is served
+#
+# This workflow cannot reach the official site: that lives in another repository and is only changed by
+# scripts/release.sh, after explicit approval (docs/ENVIRONMENTS.md). The token below is limited to this repository.
+#
+# One-time manual setting (a workflow file cannot do it): Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Until it is set, `deploy` fails with "Get Pages site failed ... Not Found"; once it is set, use
+# Actions -> (that run) -> "Re-run failed jobs": the already-built artifact is published.
 name: Deploy development site (GitHub Pages)
 
 on:
@@ -13,8 +23,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -35,25 +43,67 @@ jobs:
       - name: Release-script tests (local throw-away repositories)
         run: node tests/release.test.js
 
-  deploy:
+  build:
     needs: test
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      marker: ${{ steps.site.outputs.marker }}
     steps:
       - uses: actions/checkout@v4
       - name: Assemble the site (only what the browser needs)
+        id: site
         run: |
           mkdir _site
           grep -v '^[[:space:]]*\(#\|$\)' scripts/site-files.txt | xargs -I{} cp -r {} _site/
           touch _site/.nojekyll
           test ! -e _site/CNAME   # the official domain must never be published from here
-          echo "Publishing build marker:"; grep -o '<meta name="rebuilt-build" content="[^"]*"' _site/index.html
-          ls -R _site | head -n 60
-      - uses: actions/configure-pages@v5
+          for d in supabase tests docs scripts .github; do test ! -e "_site/$d" || { echo "::error::_site/$d must not be published"; exit 1; }; done
+          marker="$(sed -n 's/.*<meta name="rebuilt-build" content="\([^"]*\)".*/\1/p' _site/index.html | head -n 1)"
+          test -n "$marker" || { echo "::error::no build marker in index.html"; exit 1; }
+          echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          echo "Publishing build marker: $marker"
+          find _site -type f | sort | head -n 80
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  verify:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: The published address serves this build, and nothing private
+        env:
+          MARKER: ${{ needs.build.outputs.marker }}
+        run: |
+          URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/"
+          echo "Checking $URL for build marker: $MARKER"
+          ok=0
+          for i in $(seq 1 12); do
+            got="$(curl -fsS -H 'Cache-Control: no-cache' "$URL?v=$GITHUB_SHA$i" | sed -n 's/.*<meta name="rebuilt-build" content="\([^"]*\)".*/\1/p' | head -n 1 || true)"
+            echo "attempt $i: served marker = '${got}'"
+            if [ "$got" = "$MARKER" ]; then ok=1; break; fi
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "::error::$URL does not serve build marker '$MARKER'"; exit 1; }
+          for p in CNAME supabase/README.md tests/auth.test.js docs/ENVIRONMENTS.md scripts/release.sh .github/workflows/pages.yml; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL$p")"
+            echo "GET /$p -> $code"
+            [ "$code" = "404" ] || { echo "::error::/$p must not be served (got $code)"; exit 1; }
+          done
+          curl -fsS "${URL}js/supabaseClient.js" | grep -q 'development:' || { echo "::error::supabaseClient.js on the preview has no development profile"; exit 1; }
+          echo "supabaseClient.js: development profile present"

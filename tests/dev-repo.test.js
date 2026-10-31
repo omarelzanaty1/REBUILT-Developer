@@ -54,6 +54,33 @@ test("nothing in the workflows or scripts can reach the official repository exce
   assert.deepStrictEqual(offenders, [], "workflows must not push to the Stable repository");
 });
 
+test("pages.yml is test -> build -> deploy -> verify; only deploy may write Pages; the token is read-only elsewhere", () => {
+  const wf = read(".github/workflows/pages.yml");
+  assert.ok(/^permissions:\n\s+contents:\s*read\s*$/m.test(wf), "top-level permissions must be contents: read only");
+  assert.strictEqual((wf.match(/pages:\s*write/g) || []).length, 1, "exactly one job (deploy) may have pages: write");
+  assert.strictEqual((wf.match(/id-token:\s*write/g) || []).length, 1, "exactly one job (deploy) may have id-token: write");
+  assert.ok(/deploy:\n\s+needs:\s*build/.test(wf), "deploy must need build");
+  assert.ok(/build:\n\s+needs:\s*test/.test(wf), "build must need test");
+  assert.ok(/verify:\n\s+needs:\s*\[build,\s*deploy\]/.test(wf), "a verify job must run after deploy");
+  assert.ok(/rebuilt-build/.test(wf.slice(wf.indexOf("verify:"))), "verify must compare the served build marker");
+  ["CNAME", "supabase/README.md", "tests/auth.test.js", "docs/ENVIRONMENTS.md"].forEach((x) => assert.ok(wf.slice(wf.indexOf("verify:")).includes(x), "verify must prove /" + x + " is not served"));
+});
+
+test("regression.yml: manual trigger only, read-only token, can publish nothing, and no `runner` context in job-level env (the context GitHub rejects there)", () => {
+  const wf = read(".github/workflows/regression.yml");
+  const on = wf.slice(wf.indexOf("\non:"), wf.indexOf("\npermissions:"));
+  assert.ok(/workflow_dispatch/.test(on) && !/push|pull_request|schedule|workflow_run/.test(on), "must run only when started by hand");
+  assert.ok(/^permissions:\n\s+contents:\s*read\s*$/m.test(wf));
+  assert.ok(!/pages:\s*write|id-token:\s*write|contents:\s*write|deploy-pages|configure-pages/.test(wf.replace(/^\s*#.*$/gm, "")), "a regression run must not be able to publish");
+  // job-level env block (4-space indent) must not read the runner context
+  const lines = wf.split("\n");
+  lines.forEach((l, i) => {
+    if (/^ {4}env:\s*$/.test(l)) {
+      for (let j = i + 1; j < lines.length && (/^ {5,}/.test(lines[j]) || lines[j].trim() === ""); j++) assert.ok(!/\$\{\{\s*runner\./.test(lines[j]), "job-level env uses the runner context: " + lines[j].trim());
+    }
+  });
+});
+
 test(".gitignore keeps secrets and tool output out of Git", () => {
   const g = lines(".gitignore");
   [".env", "node_modules/", "tests/browser/out/"].forEach((x) => assert.ok(g.includes(x), x + " missing from .gitignore"));

@@ -9,7 +9,7 @@
 | المستودع | [`omarelzanaty1/rebuilt0.4`](https://github.com/omarelzanaty1/rebuilt0.4) (عام) | [`omarelzanaty1/REBUILT-Developer`](https://github.com/omarelzanaty1/REBUILT-Developer) (**خاص**) |
 | الفرع الذي يُنشر | `main` | `main` |
 | الرابط | https://getrebuilt.online/ (وهو نفسه `https://omarelzanaty1.github.io/rebuilt0.4/`) | https://omarelzanaty1.github.io/REBUILT-Developer/ |
-| طريقة النشر | GitHub Pages «من الفرع `main`» + ملف `CNAME` (لم يتغيّر) | GitHub Pages «من GitHub Actions» (`.github/workflows/pages.yml`) بعد نجاح الاختبارات |
+| طريقة النشر | GitHub Pages «من الفرع `main`» + ملف `CNAME` (لم يتغيّر) | GitHub Pages «من GitHub Actions» (`.github/workflows/pages.yml`: test → build → deploy → verify) تلقائيًا عند كل push ناجح على `main` |
 | من يغيّره | `scripts/release.sh` فقط، بعد موافقتك الصريحة على commit بعينه | أي push على `main` في مستودع التطوير |
 | قاعدة البيانات | مشروع Supabase الحالي `jvyhtpfedkypwdzyadba` (المستخدمون الحقيقيون) | **لا مشروع حتى الآن** ← التطبيق يعمل محليًا في المتصفح بدون أي طلب إلى Supabase؛ مشروع تطوير منفصل مخطط له (القسم 8) |
 | للمستخدمين؟ | نعم | **لا** — للمبرمجين والاختبار فقط |
@@ -37,13 +37,26 @@ python3 -m http.server 4173      # ثم افتح http://localhost:4173/
 
 على `localhost` يعمل التطبيق في الوضع المحلي (حسابات وبيانات داخل المتصفح فقط) — لا يتصل بأي Supabase.
 
-## 4. نشر نسخة التطوير
+## 4. نشر نسخة التطوير (موقع المعاينة)
 
-كل `git push` على `main` في مستودع التطوير يشغّل `pages.yml`: يجري الاختبارات، ثم ينشر **ملفات الموقع فقط** (القائمة في `scripts/site-files.txt`: `index.html` و`css/` و`js/` و`assets/` و`manifest.webmanifest` و`sw.js`). مجلدات `supabase/` و`tests/` و`docs/` و`scripts/` و`.github/` **لا تُنشر**. الخطوة تتأكد أن `CNAME` غير موجود.
+دورة العمل المعتمدة:
 
-**إعداد يدوي لمرة واحدة** (لا يمكن عمله من ملف): في المستودع الخاص ← Settings ← Pages ← Build and deployment ← Source = **GitHub Actions**.
+```
+Developer (push إلى main) → GitHub Actions → موقع المعاينة → مراجعتك → موافقتك الصريحة → Stable
+```
 
-> **تنبيه مهم (تحقق منه قبل الاعتماد على هذا المسار):** وفق توثيق GitHub، Pages متاح للمستودعات **الخاصة** فقط في خطط GitHub Pro / Team / Enterprise؛ في الخطة المجانية Pages للمستودعات العامة فقط ([GitHub Docs](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)). وفي الخطط غير Enterprise Cloud يكون عنوان الموقع **مفتوحًا لمن يعرفه** حتى لو المستودع خاص (لم أستطع تأكيد هذه الجملة من الصفحة المتاحة لي — راجع Settings ← Pages بنفسك). موقع التطوير لا يحتوي أسرارًا (مفتاح publishable فقط، ولا مشروع تطوير بعد) وفيه `noindex`، لكن `noindex` ليس تحكمًا في الوصول. إن كان حسابك مجانيًا فالخيارات: ترقية الحساب إلى Pro، أو تشغيل التطوير محليًا (القسم 3)، أو (ممنوع حاليًا بقرارك) جعل المستودع عامًا.
+كل `git push` على `main` في مستودع التطوير يشغّل `.github/workflows/pages.yml` بأربع مراحل متتالية، وكل مرحلة تعتمد على نجاح السابقة:
+
+1. **test** — اختبارات الوحدة + حراس المستودع + اختبارات `release.sh`. أي فشل يوقف الباقي.
+2. **build** — يجمّع الموقع من الملفات المذكورة في `scripts/site-files.txt` **فقط** (`index.html` و`css/` و`js/` و`assets/` و`manifest.webmanifest` و`sw.js`)، ويفشل إن وُجد `CNAME` أو أي من `supabase/` و`tests/` و`docs/` و`scripts/` و`.github/` داخل الناتج، ثم يرفعه كـ artifact.
+3. **deploy** — ينشر الـ artifact على Pages الخاص بهذا المستودع.
+4. **verify** — يفتح العنوان المنشور ويقارن الـ Build Marker المقدَّم بالمتوقّع، ويتأكد أن `/CNAME` و`/supabase/…` و`/tests/…` و`/docs/…` و`/scripts/…` و`/.github/…` تردّ **404**، وأن `supabaseClient.js` المنشور فيه ملف التطوير.
+
+الـ token في كل المراحل للقراءة فقط عدا `deploy` (`pages: write`, `id-token: write`) ولمستودع التطوير وحده؛ لا يملك أي صلاحية على `rebuilt0.4`. الانتقال إلى Stable لا يحدث من هنا أبدًا — فقط `scripts/release.sh` بعد موافقتك (القسم 7).
+
+**إعداد يدوي لمرة واحدة** (لا يمكن عمله من ملف ولا من جلسة Claude، فالـ proxy يمنع مسار Pages API): في المستودع الخاص ← Settings ← Pages ← Build and deployment ← Source = **GitHub Actions**. قبل ذلك تفشل مرحلة `deploy` برسالة `Get Pages site failed … Not Found` (والمراحل قبلها تنجح)؛ بعد تفعيله اضغط على أي run ← **Re-run failed jobs** فيُنشر نفس الـ artifact بدون commit جديد.
+
+> **الخطة:** وفق توثيق GitHub، Pages للمستودعات **الخاصة** متاح في خطط GitHub Pro / Team / Enterprise فقط؛ الخطة المجانية للمستودعات العامة فقط ([GitHub Docs](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)). لا أستطيع قراءة خطة حسابك من الجلسة؛ تعرف النتيجة فور فتح Settings ← Pages (إن لم تتوفر الخطة تظهر رسالة بذلك بدل خيار Source). **وفي الخطط غير Enterprise Cloud يكون عنوان الموقع مفتوحًا لمن يعرفه حتى لو المستودع خاص** — لا أسرار فيه (مفتاح publishable فقط ولا مشروع تطوير بعد)، وفيه `noindex`، لكن `noindex` ليس تحكمًا في الوصول.
 
 ## 5. الاختبارات
 
@@ -52,7 +65,7 @@ python3 -m http.server 4173      # ثم افتح http://localhost:4173/
 | وحدات (بلا تبعيات) | `node tests/auth.test.js` | المصادقة، الأمان، عدم وجود أسرار/عناوين محلية، **فصل البيئات** (أي عنوان يستخدم أي مشروع) |
 | هيكل المستودع | `node tests/dev-repo.test.js` | لا `CNAME`، المنشور = ملفات الموقع فقط، لا أسرار، ملفات SQL كاملة وغير مدمّرة |
 | سكربت الإصدار | `node tests/release.test.js` | promote/rollback على مستودعات محلية مؤقتة (انظر 7 و 8) |
-| Full Regression Sweep | `npm install && npx playwright install chromium && bash tests/browser/run-all.sh` (أو Actions ← «Full regression sweep») | 9 مجموعات متصفح: الوضع المحلي، الاستيراد/التصدير، الوضع المتصل، service worker، استعادة الباسورد (OTP)، Google، تأكيد البريد، **القنوات** |
+| Full Regression Sweep | `npm install && npx playwright install chromium && bash tests/browser/run-all.sh` (أو Actions ← «Full regression sweep» ← Run workflow، يدويًا فقط وبصلاحية قراءة فقط) | 9 مجموعات متصفح: الوضع المحلي، الاستيراد/التصدير، الوضع المتصل، service worker، استعادة الباسورد (OTP)، Google، تأكيد البريد، **القنوات** |
 
 **حدود هذه الاختبارات:** اختبارات المتصفح تعمل على **نسخة محاكاة** لـ Supabase وGoogle داخل المتصفح (`tests/browser/fake-supabase.js`). تثبت ما يرسله التطبيق وكيف يتصرف عند كل ردّ، **لا** ما يردّ به Supabase/Google الحقيقيان. تسجيل حساب حقيقي، وصول رسالة بريد حقيقية، OTP حقيقي، وGoogle OAuth حقيقي — كلها تُجرَّب يدويًا على بيئة لها مشروع Supabase (ولا تُجرَّب بحسابات حقيقية في التطوير).
 
