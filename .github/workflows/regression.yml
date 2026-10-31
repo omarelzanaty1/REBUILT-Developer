@@ -1,6 +1,8 @@
 # Full Regression Sweep, on demand: Actions -> "Full regression sweep" -> Run workflow.
 # Runs the unit tests and every browser suite (tests/browser) against the in-browser test double of Supabase/Google.
 # It proves what the app sends and how it reacts — not what the real Supabase / Google answer.
+# Manual trigger only, read-only token: it cannot publish anything and cannot reach any other repository.
+# (The `runner` context is not available in job-level `env`, only inside steps — hence RB_OUT is set on the step.)
 name: Full regression sweep
 
 on:
@@ -13,8 +15,6 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      RB_OUT: ${{ runner.temp }}/rb-out
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +23,8 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: npx playwright install --with-deps chromium
       - name: Sweep
+        env:
+          RB_OUT: ${{ runner.temp }}/rb-out
         run: bash tests/browser/run-all.sh
       - name: Keep the logs
         if: always()
