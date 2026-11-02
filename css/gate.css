@@ -236,3 +236,22 @@ body.is-gate { background: var(--bg); }
 /* "Send the confirmation e-mail again" refusal (a wait, an invalid address) written under the button that stays in place */
 .resend-msg { display: block; margin-top: 6px; font-size: 0.92em; color: var(--danger); }
 .resend-msg:empty { display: none; }
+
+/* ---------- Strict mode: the blocking error screen and the corner tags ---------- */
+
+/* the technical line under the explanation (which tables, which code): small, left-to-right friendly, selectable */
+.gate__tech { margin: 0 0 var(--s-3); padding: var(--s-3); border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: var(--surface-2); color: var(--ink-faint); font-size: var(--fs-xs, 0.8125rem); line-height: 1.7; text-align: start; overflow-wrap: anywhere; user-select: text; }
+
+/* A small tag in the corner of EVERY screen (gate and app) so a page is never mistaken for another one. Pure CSS from
+   attributes on <html> (set by supabaseClient.js / app.js): no markup, nothing to click, hidden when printing.
+     data-backend="dev"  this page reads and writes the DEVELOPMENT project (REBUILT-Dev), not the real users' one
+     data-mode="local"   no server at all: the data lives in this browser only (the deliberate local mode)            */
+html[data-backend="dev"]::before,
+html[data-mode="local"]::after {
+  position: fixed; inset-block-start: 0; inset-inline-start: 0; z-index: 2147483000; pointer-events: none;
+  padding: 1px 10px 2px; border-end-end-radius: var(--r-sm);
+  font: 700 11px/1.5 var(--font-ui); letter-spacing: 0.02em; color: var(--ink-on-brand);
+}
+html[data-backend="dev"]::before { content: "Dev · REBUILT-Dev"; background: var(--brand-orange); direction: ltr; }
+html[data-mode="local"]::after { content: "وضع محلي · بياناتك على المتصفح ده بس"; background: var(--brand-yellow, #ffd23f); }
+@media print { html[data-backend="dev"]::before, html[data-mode="local"]::after { display: none; } }

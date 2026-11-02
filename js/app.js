@@ -90,6 +90,8 @@ REBUILT.App = (function () {
     migrateAchievements();
   }
 
+  const strictMode = () => REBUILT.SupabaseClient.mustUseBackend();
+
   /** After a real sign-in / sign-up the server copy is the truth — never carry over whatever this browser had cached. */
   async function reloadState() {
     if (!REBUILT.Auth.isRealAuth()) return state;
@@ -100,13 +102,75 @@ REBUILT.App = (function () {
         migrateShape();
       }
     } catch (err) {
+      if (strictMode()) throw err; // the gate shows the error screen (with «try again») instead of going on with stale data
       console.warn("REBUILT: could not refresh state after sign-in", err);
     }
     return state;
   }
 
+  /* ---------------- Strict mode: failures are shown, never hidden ---------------- */
+
+  const SYNC_TEXT = {
+    network: "مقدرناش نحفظ التغيير: مفيش اتصال بالسيرفر.",
+    permission: "السيرفر رفض حفظ التغيير (صلاحيات).",
+    missing_table: "مقدرناش نحفظ التغيير: قاعدة البيانات مش جاهزة.",
+    server: "مقدرناش نحفظ التغيير: السيرفر فيه مشكلة.",
+    session: "انتهت جلستك. سجّل دخولك تاني.",
+  };
+  let lastSyncToast = 0;
+  let resyncing = false;
+  let resyncAgain = false;
+
+  /** A write did not reach the server: say so (once per few seconds, not once per failed call), then go back to what the server really holds. */
+  function onSyncError(err) {
+    const now = Date.now();
+    if (now - lastSyncToast > 4000) {
+      lastSyncToast = now;
+      REBUILT.Toast.error((SYNC_TEXT[err.kind] || "مقدرناش نحفظ التغيير على السيرفر.") + " هنرجّع الشاشة للي محفوظ فعلًا.");
+    }
+    resync();
+  }
+
+  function startFailed(err) {
+    if (!state) state = REBUILT.Data.buildEmptyState(); // «sign out» on the error screen needs a state to work on
+    REBUILT.Gate.showBackendError(err, { retry: () => window.location.reload(), signOut: () => Actions.signOut() });
+  }
+
+  /**
+   * Reload the server's copy and show it, so the screen never keeps a change the server refused. Waits for the writes still
+   * on their way first, so a later change that did land is not undone for a moment. If the server cannot be read either, the
+   * blocking error screen takes over (try again → this again). Resolves true when the screen shows the server's data.
+   */
+  async function resync() {
+    if (resyncing) { resyncAgain = true; return false; }
+    resyncing = true;
+    let ok = false;
+    try {
+      do {
+        resyncAgain = false;
+        await REBUILT.Storage.idle();
+        const fresh = await REBUILT.Storage.load();
+        if (!fresh) { window.location.reload(); return false; } // signed out meanwhile: the sign-in screen
+        state = fresh;
+        migrateShape();
+        REBUILT.Streak.refreshToday(state);
+        REBUILT.Streak.recomputeStreak(state);
+        REBUILT.Router.renderCurrent();
+      } while (resyncAgain);
+      ok = true;
+      REBUILT.Gate.clearBackendError();
+    } catch (err) {
+      REBUILT.Gate.showBackendError(err, { retry: resync, signOut: () => Actions.signOut() });
+    } finally {
+      resyncing = false;
+    }
+    return ok;
+  }
+
   async function init() {
+    try { document.documentElement.setAttribute("data-mode", REBUILT.Auth.mode()); } catch (err) { /* cosmetic: the corner tag */ }
     REBUILT.Auth.watchAuthEvents();
+    REBUILT.Storage.setSyncErrorHandler(onSyncError); // only ever called in strict mode
 
     // Back from the sign-up confirmation e-mail? Settle it FIRST: the link carries a one-time session that must
     // never be adopted as a login (nor have the saved data loaded for it). The result decides what the gate shows.
@@ -118,7 +182,12 @@ REBUILT.App = (function () {
       emailLink = null;
     }
 
-    const saved = await REBUILT.Storage.load();
+    let saved;
+    try {
+      saved = await REBUILT.Storage.load();
+    } catch (err) {
+      return startFailed(err); // strict mode only: load() never throws otherwise
+    }
     state = saved || REBUILT.Data.buildEmptyState();
     migrateShape();
 
@@ -140,6 +209,7 @@ REBUILT.App = (function () {
         }
         REBUILT.Storage.save(state);
       } catch (err) {
+        if (strictMode()) return startFailed(err); // not «continuing offline»: a session check that failed is an error
         // Offline or Supabase unreachable: fall back to whatever local state says.
         console.warn("REBUILT: could not verify session, continuing offline", err);
       }
@@ -153,7 +223,7 @@ REBUILT.App = (function () {
       oauthResult = null;
     }
 
-    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState, oauth: oauthResult, emailLink });
+    REBUILT.Gate.start(state, onGatePassed, { reload: reloadState, oauth: oauthResult, emailLink, signOut: () => Actions.signOut() });
   }
 
   /** Shown after the gate: a linking attempt lands on Settings (where the result is explained); other failures get a toast. */

@@ -502,7 +502,13 @@ REBUILT.Auth = (function () {
 
     async getSession(state) {
       const sb = REBUILT.SupabaseClient.get();
-      const { data } = await sb.auth.getSession();
+      const { data, error } = await sb.auth.getSession();
+      // Strict mode: a session check that FAILED (network, server) is an error, not «signed out» — only a sign-in that is
+      // really invalid means signed out. (Off strict mode the error was never looked at and still is not.)
+      if (error && REBUILT.SupabaseClient.mustUseBackend()) {
+        if (REBUILT.SupabaseClient.classify(error).kind !== "session") throw REBUILT.SupabaseClient.toBackendError(error, { op: "session" });
+        return { loggedIn: false, localOnly: false };
+      }
       if (!data.session) {
         // No session, so nothing can be "pending": drop a leftover reset marker instead of showing a form that cannot save.
         if (recovery.intent) clearRecovery();
@@ -917,12 +923,50 @@ REBUILT.Auth = (function () {
     },
   };
 
+  /* ---------------- Provider: Unavailable (a configured backend that cannot be used) ---------------- */
+
+  /**
+   * Chosen instead of LocalProvider when a backend IS configured for this page (strict mode) but cannot be used — the library
+   * never loaded, or the client could not be created. It refuses every operation with a clear reason: a device-only sign-in
+   * would look like a working account while saving nothing to the server. (An EMPTY profile is not this case: that is the
+   * deliberate local mode, and stays LocalProvider.)
+   */
+  const UnavailableProvider = (function () {
+    const refuse = () => ({
+      ok: false,
+      kind: "backend_unavailable",
+      code: "backend_unavailable",
+      error: "السيرفر مش متاح دلوقتي، فمش هينفع تسجّل دخول أو تعمل حساب. جرّب تاني بعد شوية.",
+      limited: false,
+      retryAfter: 0,
+    });
+    const refuseAsync = async () => refuse();
+    return {
+      id: "unavailable",
+      signUp: refuseAsync,
+      signIn: refuseAsync,
+      resendConfirmation: refuseAsync,
+      requestPasswordReset: refuseAsync,
+      verifyRecoveryCode: refuseAsync,
+      updatePassword: refuseAsync,
+      signInWithGoogle: refuseAsync,
+      linkGoogle: refuseAsync,
+      async getIdentities() {
+        return Object.assign(refuse(), { identities: [] });
+      },
+      async signOut() { /* nothing to sign out of, and nothing is marked signed in */ },
+      async getSession() {
+        throw new (REBUILT.SupabaseClient.BackendError)("unavailable", REBUILT.SupabaseClient.getError() || "the configured backend is not available", { op: "session" });
+      },
+    };
+  })();
+
   /* ---------------- Provider selection ---------------- */
 
   function provider() {
-    return REBUILT.SupabaseClient && REBUILT.SupabaseClient.isAvailable()
-      ? SupabaseProvider
-      : LocalProvider;
+    const SC = REBUILT.SupabaseClient;
+    if (SC && SC.isAvailable()) return SupabaseProvider;
+    return SC && SC.mustUseBackend && SC.mustUseBackend() ? UnavailableProvider : LocalProvider;
   }
 
   function mode() {

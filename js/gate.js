@@ -152,12 +152,84 @@ REBUILT.Gate = (function () {
 
   /** After any successful sign-in / sign-up / password reset: take the server copy, then route. */
   async function continueAfterAuth() {
-    if (ctx.reload) state = await ctx.reload();
+    try {
+      if (ctx.reload) state = await ctx.reload();
+    } catch (err) {
+      // Strict mode only (reload() swallows its failures otherwise): signed in, but the account's data could not be read.
+      return showBackendError(err, { retry: continueAfterAuth, signOut: ctx.signOut });
+    }
     resetDraft();
     form.name = state.user.name || form.name;
     if (state.meta.isOnboarded) return finishGate();
     step = "onboard-basic";
     render();
+  }
+
+  /* ---------------- The blocking error screen (strict mode) ---------------- */
+
+  // What the person is told, by kind of failure (see SupabaseClient.classify). The technical line (tables, code) is shown under it.
+  const BACKEND_TEXT = {
+    network: ["مفيش اتصال بالسيرفر", "مقدرناش نوصل لسيرفر REBUILT. اتأكد من الإنترنت وجرّب تاني. مش هنعرضلك بيانات قديمة من المتصفح، عشان متشوفش حاجة مش حقيقية."],
+    unavailable: ["السيرفر مش متاح", "مكتبة الاتصال بالسيرفر ما اتحمّلتش (إنترنت ضعيف أو حاجب بيمنعها). النسخة دي لازم تشتغل على السيرفر، فمش هندخلك بوضع محلي على المتصفح."],
+    permission: ["السيرفر رفض الطلب", "حسابك مالوش صلاحية على جزء من البيانات (إعدادات الأمان على السيرفر). ده خطأ في الإعداد مش في حسابك، وإعادة المحاولة لوحدها مش هتحلّه."],
+    missing_table: ["قاعدة البيانات مش جاهزة", "جدول أو عمود مطلوب مش موجود في مشروع السيرفر ده. لازم قاعدة البيانات تتجهّز أو تتحدّث قبل ما التطبيق يشتغل."],
+    server: ["السيرفر فيه مشكلة", "السيرفر ردّ بخطأ من عنده. غالبًا مؤقت، جرّب تاني بعد شوية."],
+    profile_missing: ["ملف حسابك مش موجود", "حسابك موجود لكن صف الملف الشخصي بتاعه مش على السيرفر. ده خلل في إعداد قاعدة البيانات."],
+    incomplete: ["البيانات وصلت ناقصة", "السيرفر رجّع جزء من بياناتك بس، فمش هنعرضها عشان متشوفش أرقام ناقصة. جرّب تاني."],
+    unknown: ["مقدرناش نحمّل بياناتك", "حصل خطأ غير متوقع وإحنا بنقرأ بياناتك من السيرفر. جرّب تاني."],
+  };
+
+  /**
+   * Strict mode: a configured backend that cannot be read stops the app here — never a silent fall-back to the browser copy.
+   * `opts.retry` runs again whatever failed; `opts.signOut` (optional) leaves the account. The app behind stays hidden.
+   */
+  function showBackendError(err, opts) {
+    opts = opts || {};
+    const SC = REBUILT.SupabaseClient;
+    const e = err && err.kind && err.name === "BackendError" ? err : SC.toBackendError(err, {});
+    const text = BACKEND_TEXT[e.kind] || BACKEND_TEXT.unknown;
+    const tables = (e.tables && e.tables.length ? e.tables : e.table ? [e.table] : []).slice();
+    const tech = []
+      .concat(tables.length ? ["الجداول: " + tables.join("، ")] : [])
+      .concat(e.code ? ["الكود: " + e.code] : [])
+      .concat(e.message && e.message !== e.kind ? [e.message] : []);
+    clearInterval(cooldownTimer);
+    const g = root();
+    g.innerHTML = frame(`
+      <div class="gate__state" id="backend-error" data-kind="${esc(e.kind)}" role="alert">
+        <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 28 })}</span>
+        <h1 class="gate__title">${esc(text[0])}</h1>
+        <p class="gate__sub">${esc(text[1])}</p>
+        ${tech.length ? `<p class="gate__tech" dir="auto">${tech.map((t) => esc(t)).join("<br/>")}</p>` : ""}
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-be="retry">جرّب تاني</button>
+        ${opts.signOut && e.kind !== "unavailable" ? `<button type="button" class="btn btn--ghost btn--block" data-be="signout">تسجيل الخروج</button>` : ""}
+      </div>
+    `);
+    setAppHidden(true);
+    g.scrollTop = 0;
+    const retry = g.querySelector('[data-be="retry"]');
+    if (retry) {
+      retry.addEventListener("click", async () => {
+        retry.disabled = true;
+        retry.textContent = "بنحاول…";
+        try {
+          await (opts.retry ? opts.retry() : window.location.reload());
+        } catch (x) {
+          console.warn("REBUILT: retry failed", x);
+        }
+        if (document.getElementById("backend-error") && retry.isConnected) { retry.disabled = false; retry.textContent = "جرّب تاني"; }
+      });
+      retry.focus({ preventScroll: true });
+    }
+    const out = g.querySelector('[data-be="signout"]');
+    if (out && opts.signOut) out.addEventListener("click", () => opts.signOut());
+  }
+
+  /** Take the error screen away and show the app again (after a retry that worked). */
+  function clearBackendError() {
+    if (!document.getElementById("backend-error")) return;
+    root().innerHTML = "";
+    setAppHidden(false);
   }
 
   /* ---------------- Rendering ---------------- */
@@ -1248,5 +1320,5 @@ REBUILT.Gate = (function () {
     finishGate();
   }
 
-  return { start };
+  return { start, showBackendError, clearBackendError };
 })();

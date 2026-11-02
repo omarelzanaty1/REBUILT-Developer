@@ -3,7 +3,7 @@
   "private": true,
   "description": "REBUILT — the development repository. A static site: no build step, no runtime dependencies.",
   "scripts": {
-    "test": "node tests/auth.test.js && node tests/dev-repo.test.js && node tests/release.test.js",
+    "test": "node tests/auth.test.js && node tests/strict.test.js && node tests/dev-repo.test.js && node tests/release.test.js",
     "test:browser": "bash tests/browser/run-all.sh",
     "serve": "python3 -m http.server 4173"
   },

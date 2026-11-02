@@ -85,6 +85,74 @@ REBUILT.SupabaseClient = (function () {
     return !!init();
   }
 
+  /**
+   * STRICT MODE — «a configured backend that fails is never hidden behind the local copy».
+   * On when this page is NOT the stable channel AND the development project is filled in above:
+   * from then on every failure to read or write the server is an error the person sees, the browser copy
+   * (rebuilt_state_v1) is neither read nor written, and a missing library never turns into a device-only sign-in.
+   * Off on the stable channel (its behaviour is unchanged until the owner approves promoting this), and off while the
+   * development profile is empty (the deliberate local mode, used by the local-mode tests).
+   * Derived from the address and the profile only — never from a setting that could be copied between repositories.
+   */
+  function mustUseBackend() {
+    return PROFILE === "development" && !!(CONFIG.url && CONFIG.anonKey);
+  }
+
+  /* ---------------- Errors from the backend: one shape, one classification ---------------- */
+
+  /**
+   * What went wrong, in kinds the screen can speak about:
+   *   network        the request never got an answer (offline, DNS, blocked, timeout)
+   *   session        the sign-in is not valid any more (expired / revoked / signed out) — means «sign in again», not «database broken»
+   *   permission     the server refused: no right on this table (RLS / grants)
+   *   missing_table  the table or column does not exist in this project (database not prepared / out of date)
+   *   server         the service itself answered with 5xx
+   *   unknown        anything else
+   * (BackendError also uses: unavailable — the library never loaded; profile_missing — the account has no profile row;
+   *  incomplete — a big table came back shorter than the server's own total.)
+   */
+  function classify(err) {
+    const e = err || {};
+    const msg = String(e.message || e.msg || e.error_description || "");
+    const code = String(e.code == null ? "" : e.code);
+    const name = String(e.name || "");
+    const status = Number(e.status != null ? e.status : e.statusCode) || 0;
+    let kind = "unknown";
+    if (name === "AuthRetryableFetchError" || /failed to fetch|networkerror|network request failed|load failed|fetch failed|err_internet|err_network|timed? ?out|econn|enotfound/i.test(msg)) kind = "network";
+    else if (/^PGRST30[123]$/.test(code) || /^(user_not_found|session_not_found|session_expired|bad_jwt|refresh_token_not_found|refresh_token_already_used)$/.test(code) || /^(AuthSessionMissingError|AuthInvalidJwtError|AuthInvalidTokenResponseError)$/.test(name) || /jwt (expired|invalid|malformed)|invalid jwt|sub claim in jwt|auth session missing|invalid (refresh )?token|refresh token/i.test(msg)) kind = "session";
+    else if (code === "42501" || status === 403 || /permission denied|row-level security|insufficient privilege/i.test(msg)) kind = "permission";
+    else if (status === 401) kind = "session";
+    else if (/^(42P01|42703|PGRST205|PGRST204)$/.test(code) || /does not exist|could not find the (table|column)|schema cache/i.test(msg)) kind = "missing_table";
+    else if (status >= 500 || /^5\d\d$/.test(code)) kind = "server";
+    return { kind, code, status, message: msg };
+  }
+
+  /** The error every strict-mode failure is thrown as. `.tables` lists the tables of a load that failed. */
+  class BackendError extends Error {
+    constructor(kind, message, extra) {
+      super(message || kind);
+      this.name = "BackendError";
+      this.kind = kind;
+      const x = extra || {};
+      this.table = x.table || null;
+      this.tables = x.tables || (x.table ? [x.table] : []);
+      this.code = x.code || "";
+      this.status = x.status || 0;
+      this.op = x.op || "";
+    }
+  }
+
+  /** Any thrown or returned error → a BackendError (an existing one is kept; it only gains the table it was missing). */
+  function toBackendError(err, extra) {
+    const x = extra || {};
+    if (err instanceof BackendError) {
+      if (!err.table && x.table) { err.table = x.table; if (!err.tables.length) err.tables = [x.table]; }
+      return err;
+    }
+    const c = classify(err);
+    return new BackendError(c.kind, c.message || String(err || "backend error"), { table: x.table, tables: x.tables, op: x.op, code: c.code, status: c.status });
+  }
+
   function get() {
     return init();
   }
@@ -133,6 +201,9 @@ REBUILT.SupabaseClient = (function () {
   function markChannel() {
     try {
       document.documentElement.setAttribute("data-channel", CHANNEL);
+      // A page that talks to the development project says so (a small corner tag, css/gate.css or wherever [data-backend] is styled),
+      // so a Preview is never mistaken for the real site.
+      if (mustUseBackend()) document.documentElement.setAttribute("data-backend", "dev");
       if (CHANNEL === "development") {
         const m = document.createElement("meta");
         m.name = "robots";
@@ -149,12 +220,15 @@ REBUILT.SupabaseClient = (function () {
   function diagnose() {
     const libLoaded = typeof window.supabase !== "undefined" && !!window.supabase.createClient;
     const c = init();
+    const strict = mustUseBackend();
     return {
       build: buildMarker(),
       channel: CHANNEL,
       backend: PROFILE === "stable" ? "production project" : CONFIG.url ? "development project" : "none yet (local mode)",
       host: loc.host,
-      mode: c ? "supabase (REAL AUTH)" : "local (FALLBACK)",
+      strict,
+      // «unavailable», not «local»: a configured backend that cannot be used is an error state, never the device-only mode.
+      mode: c ? "supabase (REAL AUTH)" : strict ? "unavailable (STRICT: the configured backend is required)" : "local (FALLBACK)",
       supabaseJsLoaded: libLoaded,
       clientCreated: !!c,
       configuredUrl: CONFIG.url,
@@ -166,7 +240,7 @@ REBUILT.SupabaseClient = (function () {
 
   markChannel();
 
-  return { init, isAvailable, get, getError, diagnose, channelFor, buildMarker, markChannel, CONFIG, PROFILES };
+  return { init, isAvailable, get, getError, diagnose, channelFor, buildMarker, markChannel, mustUseBackend, classify, BackendError, toBackendError, CONFIG, PROFILES };
 })();
 
 // Console shortcut so it can be checked on the deployed site without digging.

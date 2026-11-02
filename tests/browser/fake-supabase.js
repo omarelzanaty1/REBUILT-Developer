@@ -32,7 +32,13 @@
       errorText: 'Identity is already linked to another user',
     },
     inject: {},               // { signUp: [error, ...], resetPasswordForEmail: [...], signIn: [...], updateUser: [...] } consumed one per call
+    // --- faults for the strict-mode tests (all off by default) ---
+    down: false,              // true → the server cannot be reached: every table request and getUser fail like "TypeError: Failed to fetch"
+    fail: {},                 // { "select:tasks": {code, message}, "insert:habits": …, "*:tasks": … } → that request answers with this error
+    maxRows: null,            // the API cuts one answer at this many rows (the real default is 1000); null = no cut
   }, window.__SB_CFG || {}) });
+  // Faults must survive a reload (a test reloads the page to see the first load fail): they ride in sessionStorage.
+  try { Object.assign(sb.cfg, JSON.parse(sessionStorage.getItem("__sbcfg") || "{}")); } catch (e) {}
   // The trip to Google reloads the page; keep the record of the OAuth calls made before it (only those: other tests count calls per page load).
   (function () {
     const KEY = "__fakesb_oauth", isO = (c) => c.fn === "signInWithOAuth" || c.fn === "linkIdentity";
@@ -92,9 +98,10 @@
 
   /* ---------------- query builder ---------------- */
   function builder(table) {
-    const q = { table, op: "select", payload: null, filters: [], single: false, opts: null };
+    const q = { table, op: "select", payload: null, filters: [], single: false, opts: null, count: null, range: null };
     const api = {
-      select() { return api; },
+      select(cols, o) { q.count = (o && o.count) || null; return api; },
+      range(a, z) { q.range = [a, z]; return api; },
       insert(p) { q.op = "insert"; q.payload = p; return api; },
       update(p) { q.op = "update"; q.payload = p; return api; },
       delete() { q.op = "delete"; return api; },
@@ -123,6 +130,9 @@
   }
 
   function exec(q) {
+    if (sb.cfg.down) { sb.errors.push({ table: q.table, op: q.op, code: "", message: "TypeError: Failed to fetch" }); return { data: null, error: { message: "TypeError: Failed to fetch", details: "", hint: "", code: "" } }; }
+    const injectedFault = sb.cfg.fail && (sb.cfg.fail[q.op + ":" + q.table] || sb.cfg.fail["*:" + q.table]);
+    if (injectedFault) return fail(q.table, q.op, injectedFault.code || "", injectedFault.message || "injected fault");
     const rows = db.tables[q.table];
     if (q.table === "user_xp_totals") {
       const uid = (q.filters.find((f) => f[0] === "user_id") || [])[1];
@@ -134,7 +144,11 @@
 
     if (q.op === "select") {
       const found = rows.filter((r) => match(r, q.filters)).map((r) => Object.assign({}, r));
-      return { data: q.single ? found[0] || null : found, error: null };
+      if (q.single) return { data: found[0] || null, error: null };
+      // like the real API: one answer holds at most maxRows rows (and exactly the requested range when there is one)
+      const cap = sb.cfg.maxRows || Infinity;
+      const part = q.range ? found.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + cap)) : found.slice(0, cap);
+      return { data: part, error: null, count: q.count ? found.length : null };
     }
     if (q.op === "insert") {
       const list = Array.isArray(q.payload) ? q.payload : [q.payload];
@@ -349,7 +363,9 @@
       return { data: { user: publicUser(u), session: sess }, error: null };
     },
     async getSession() { return { data: { session: session() }, error: null }; },
-    async getUser() { sb.authCalls.push({ fn: "getUser" }); const u = sessionUser(); return u ? { data: { user: publicUser(u) }, error: null } : { data: { user: null }, error: { message: "Auth session missing!" } }; },
+    async getUser() { sb.authCalls.push({ fn: "getUser" }); const u = sessionUser();
+      // a signed-in person with the server unreachable: the library has to ask the server, and cannot (no session at all needs no request)
+      if (u && sb.cfg.down) return { data: { user: null }, error: { name: "AuthRetryableFetchError", message: "Failed to fetch", status: 0 } }; return u ? { data: { user: publicUser(u) }, error: null } : { data: { user: null }, error: { message: "Auth session missing!" } }; },
     onAuthStateChange(cb) {
       listeners.push(cb);
       setTimeout(() => { cb("INITIAL_SESSION", session()); if (sb.recoveryPending) { sb.recoveryPending = false; cb("PASSWORD_RECOVERY", session()); } }, 0);

@@ -22,6 +22,8 @@
 columns 89 · constraints 32 · fn_grants 4 · functions 2 · indexes 18 · policies 13 · rls 10 · table_grants 231 · triggers 4 · view_options 1 · views 1
 ```
 
+(الاستعلام `verify/schema_signature.sql` يستثني دالة المنصة `rls_auto_enable` من `functions` ومن `fn_grants` معًا؛ قبل هذا التصحيح كان `fn_grants` يخرج 6. جُرِّب المعدّل قراءةً فقط على REBUILT-Dev فأعاد 4 والبصمة المرجعية؛ لم يُجرَّب على Production.)
+
 (صلاحيات الجداول لـ `service_role` تعتمد على الـ default privileges التي تضعها المنصة؛ `verify/local_auth_stub.sql` يحاكيها.)
 
 ## الاستخدام لمشروع تطوير جديد

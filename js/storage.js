@@ -2,6 +2,11 @@
    REBUILT — storage.js
    Every read/write to persistence goes through here.
 
+   STRICT MODE (supabaseClient.js → mustUseBackend(): a non-stable page with a configured backend): the browser copy
+   rebuilt_state_v1 is neither read nor written — the server is the only source of truth — and a failing load or write
+   is an error the caller must deal with, never a silent fall-back. Off strict mode (stable, or no backend configured)
+   everything below behaves exactly as before.
+
    Two halves:
    • load()/save()/clear() — the local cache. save()/clear() always
      write the device-local copy, in both modes, so the app has an
@@ -35,7 +40,30 @@ REBUILT.Storage = (function () {
     }
   }
 
+  const SC = () => REBUILT.SupabaseClient;
+  const strictOn = () => !!(SC() && SC().mustUseBackend && SC().mustUseBackend());
+
+  /** Strict load: the server or an error — never the browser copy. Resolves null when nobody is signed in. */
+  async function loadStrict() {
+    const sb = SC().get();
+    if (!sb) throw new (SC().BackendError)("unavailable", SC().getError() || "the configured backend is not available", { op: "load" });
+    let res;
+    try {
+      res = await sb.auth.getUser();
+    } catch (err) {
+      throw SC().toBackendError(err, { op: "load" });
+    }
+    if (res && res.error) {
+      // «no / expired / revoked sign-in» means signed out (the sign-in screen), anything else (network, server) is an error.
+      if (SC().classify(res.error).kind === "session") return null;
+      throw SC().toBackendError(res.error, { op: "load" });
+    }
+    if (!res || !res.data || !res.data.user) return null;
+    return REBUILT.SupabaseData.loadFullState(sb, res.data.user.id); // rejects with a BackendError naming what failed
+  }
+
   async function load() {
+    if (strictOn()) return loadStrict();
     if (REBUILT.Auth.isRealAuth()) {
       try {
         const sb = REBUILT.SupabaseClient.get();
@@ -54,6 +82,7 @@ REBUILT.Storage = (function () {
   }
 
   function save(state) {
+    if (strictOn()) return true; // strict: the server is the only copy — nothing about the account is kept in this browser
     try {
       window.localStorage.setItem(KEY, JSON.stringify(state));
       return true;
@@ -75,6 +104,9 @@ REBUILT.Storage = (function () {
   /* ================= Sync layer ================= */
 
   const pendingCreates = new Map(); // client-generated id -> in-flight create promise
+  const failedCreates = new Set(); // ids whose create was rejected (strict): writes that depend on them are not sent
+  const inflight = new Set(); // every sync call that has not finished yet (idle() waits for them)
+  let onSyncError = null;
 
   function connected() {
     return REBUILT.Auth.isRealAuth();
@@ -85,25 +117,59 @@ REBUILT.Storage = (function () {
   }
 
   /**
+   * Strict mode only: who to tell when a write did not reach the server. app.js registers one handler that shows the
+   * message and reloads the server's copy. Without a handler a failure is still logged, never thrown into a click.
+   */
+  function setSyncErrorHandler(fn) {
+    onSyncError = typeof fn === "function" ? fn : null;
+  }
+
+  function fail(err, what) {
+    const e = SC().toBackendError(err, {});
+    try { console.warn("REBUILT: " + what + " (" + e.kind + (e.table ? ", " + e.table : "") + "): " + e.message); } catch (x) { /* logging only */ }
+    if (onSyncError) {
+      try { onSyncError(e); } catch (x) { console.warn("REBUILT: sync error handler threw", x); }
+    }
+  }
+
+  function track(p) {
+    inflight.add(p);
+    const done = () => inflight.delete(p);
+    p.then(done, done);
+    return p;
+  }
+
+  /** Resolves when every write started so far has finished (landed or failed). */
+  async function idle() {
+    while (inflight.size) await Promise.all(Array.from(inflight));
+  }
+
+  /**
    * A sync call's own bug must never break the caller — log and swallow.
    * Always wraps the result with Promise.resolve() rather than checking
    * for a `.catch` method: a Postgrest query builder is a bare thenable
    * (it implements `.then()`, which is what actually fires the request)
    * and may not expose `.catch` directly — checking for it first would
    * skip ever calling `.then()`, so the request would silently never fire.
+   * In strict mode the failure is not swallowed: it is reported to the handler (see setSyncErrorHandler).
    */
   function guarded(fn) {
+    const strict = strictOn();
+    let p;
     try {
-      return Promise.resolve(fn()).catch((err) => console.warn("REBUILT: sync failed", err));
+      p = Promise.resolve(fn()).catch((err) => (strict ? fail(err, "sync failed") : console.warn("REBUILT: sync failed", err)));
     } catch (err) {
-      console.warn("REBUILT: sync threw synchronously", err);
+      if (strict) fail(err, "sync threw synchronously");
+      else console.warn("REBUILT: sync threw synchronously", err);
       return Promise.resolve();
     }
+    return strict ? track(p) : p;
   }
 
   /** If a create for this id is still in flight, wait for it first — avoids a
    *  foreign-key race when a dependent action (complete/edit/delete) fires
-   *  immediately after the create that produced the parent row. */
+   *  immediately after the create that produced the parent row.
+   *  Resolves false when that create FAILED (strict): the dependent write must not be sent for a row that does not exist. */
   async function afterPending(id) {
     const pending = pendingCreates.get(id);
     if (pending) {
@@ -113,11 +179,19 @@ REBUILT.Storage = (function () {
         // the create's own failure is already logged by trackCreate
       }
     }
+    return !failedCreates.has(id);
   }
 
-  function trackCreate(id, promise) {
+  /** `isCreate`: this promise creates the row `id` (a failure then blocks the writes that depend on it). */
+  function trackCreate(id, promise, isCreate) {
+    const strict = strictOn();
+    if (strict && isCreate) failedCreates.delete(id);
     const tracked = Promise.resolve(promise)
-      .catch((err) => console.warn("REBUILT: create sync failed", err))
+      .catch((err) => {
+        if (!strict) return console.warn("REBUILT: create sync failed", err);
+        if (isCreate) failedCreates.add(id);
+        fail(err, "create sync failed");
+      })
       .finally(() => {
         if (pendingCreates.get(id) === tracked) pendingCreates.delete(id);
       });
@@ -129,13 +203,13 @@ REBUILT.Storage = (function () {
 
   function syncAddHabit(userId, habit) {
     if (!connected()) return;
-    return guarded(() => trackCreate(habit.id, REBUILT.SupabaseData.insertHabit(client(), userId, habit)));
+    return guarded(() => trackCreate(habit.id, REBUILT.SupabaseData.insertHabit(client(), userId, habit), true));
   }
 
   function syncUpdateHabit(id, fields) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(id);
+      if (!(await afterPending(id))) return;
       return REBUILT.SupabaseData.updateHabit(client(), id, fields);
     });
   }
@@ -147,7 +221,7 @@ REBUILT.Storage = (function () {
       trackCreate(
         id,
         (async () => {
-          await afterPending(id);
+          if (!(await afterPending(id))) return;
           return REBUILT.SupabaseData.deleteHabit(client(), id);
         })()
       )
@@ -157,7 +231,7 @@ REBUILT.Storage = (function () {
   function syncHabitCompletion(userId, habitId, date, xpAwarded, isCompleting) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(habitId);
+      if (!(await afterPending(habitId))) return;
       return isCompleting
         ? REBUILT.SupabaseData.insertHabitCompletion(client(), userId, habitId, date, xpAwarded)
         : REBUILT.SupabaseData.deleteHabitCompletion(client(), habitId, date);
@@ -168,13 +242,13 @@ REBUILT.Storage = (function () {
 
   function syncAddTask(userId, task) {
     if (!connected()) return;
-    return guarded(() => trackCreate(task.id, REBUILT.SupabaseData.insertTask(client(), userId, task)));
+    return guarded(() => trackCreate(task.id, REBUILT.SupabaseData.insertTask(client(), userId, task), true));
   }
 
   function syncUpdateTask(id, fields) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(id);
+      if (!(await afterPending(id))) return;
       return REBUILT.SupabaseData.updateTask(client(), id, fields);
     });
   }
@@ -186,7 +260,7 @@ REBUILT.Storage = (function () {
       trackCreate(
         id,
         (async () => {
-          await afterPending(id);
+          if (!(await afterPending(id))) return;
           return REBUILT.SupabaseData.deleteTask(client(), id);
         })()
       )
@@ -196,7 +270,7 @@ REBUILT.Storage = (function () {
   function syncToggleTask(id, completed, completedAt, xpAwarded) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(id);
+      if (!(await afterPending(id))) return;
       return REBUILT.SupabaseData.setTaskCompletion(client(), id, completed, completedAt, xpAwarded);
     });
   }
@@ -205,13 +279,13 @@ REBUILT.Storage = (function () {
 
   function syncAddScheduleItem(userId, item) {
     if (!connected()) return;
-    return guarded(() => trackCreate(item.id, REBUILT.SupabaseData.insertScheduleItem(client(), userId, item)));
+    return guarded(() => trackCreate(item.id, REBUILT.SupabaseData.insertScheduleItem(client(), userId, item), true));
   }
 
   function syncUpdateScheduleItem(id, fields) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(id);
+      if (!(await afterPending(id))) return;
       return REBUILT.SupabaseData.updateScheduleItem(client(), id, fields);
     });
   }
@@ -223,7 +297,7 @@ REBUILT.Storage = (function () {
       trackCreate(
         id,
         (async () => {
-          await afterPending(id);
+          if (!(await afterPending(id))) return;
           return REBUILT.SupabaseData.deleteScheduleItem(client(), id);
         })()
       )
@@ -233,7 +307,7 @@ REBUILT.Storage = (function () {
   function syncToggleScheduleItem(id, completed) {
     if (!connected()) return;
     return guarded(async () => {
-      await afterPending(id);
+      if (!(await afterPending(id))) return;
       return REBUILT.SupabaseData.setScheduleItemCompletion(client(), id, completed);
     });
   }
@@ -264,7 +338,8 @@ REBUILT.Storage = (function () {
           for (const date of habit.completionHistory || []) {
             await REBUILT.SupabaseData.insertHabitCompletion(client(), userId, habit.id, date, habit.xp);
           }
-        })()
+        })(),
+        true
       )
     );
   }
@@ -280,7 +355,8 @@ REBUILT.Storage = (function () {
           if (task.completed) {
             await REBUILT.SupabaseData.setTaskCompletion(client(), task.id, true, task.completedAt, task.xp);
           }
-        })()
+        })(),
+        true
       )
     );
   }
@@ -294,7 +370,8 @@ REBUILT.Storage = (function () {
           await afterPending(item.id);
           await REBUILT.SupabaseData.insertScheduleItem(client(), userId, item);
           if (item.completed) await REBUILT.SupabaseData.setScheduleItemCompletion(client(), item.id, true);
-        })()
+        })(),
+        true
       )
     );
   }
@@ -343,6 +420,8 @@ REBUILT.Storage = (function () {
     load,
     save,
     clear,
+    setSyncErrorHandler,
+    idle,
     syncAddHabit,
     syncUpdateHabit,
     syncDeleteHabit,
