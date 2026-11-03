@@ -66,6 +66,18 @@ test("pages.yml is test -> build -> deploy -> verify; only deploy may write Page
   ["CNAME", "supabase/README.md", "tests/auth.test.js", "docs/ENVIRONMENTS.md"].forEach((x) => assert.ok(wf.slice(wf.indexOf("verify:")).includes(x), "verify must prove /" + x + " is not served"));
 });
 
+test("pages.yml: EVERY tests/*.test.js runs in the test job (strict.test.js included), none may fail softly — so a failing one blocks the deploy", () => {
+  const wf = read(".github/workflows/pages.yml");
+  const body = wf.replace(/^\s*#.*$/gm, "");
+  const job = body.slice(body.indexOf("\n  test:"), body.indexOf("\n  build:"));
+  assert.ok(job.length > 20, "could not find the test job in pages.yml");
+  const files = fs.readdirSync(path.join(ROOT, "tests")).filter((f) => /\.test\.js$/.test(f));
+  assert.ok(files.includes("strict.test.js"), "tests/strict.test.js is missing");
+  files.forEach((f) => assert.ok(new RegExp("run:\\s*node tests/" + f.replace(/\./g, "\\.") + "\\s*$", "m").test(job), "the test job must run `node tests/" + f + "` (a unit-test file that CI never runs protects nothing)"));
+  assert.ok(!/continue-on-error|\|\|\s*true|if:\s*(always|failure|cancelled)\(\)/.test(job), "a failing test must stop the pipeline: no continue-on-error / `|| true` / always() in the test job");
+  assert.ok(/build:\n\s+needs:\s*test/.test(body), "build must need test (and deploy needs build)");
+});
+
 test("regression.yml: manual trigger only, read-only token, can publish nothing, and no `runner` context in job-level env (the context GitHub rejects there)", () => {
   const wf = read(".github/workflows/regression.yml");
   const on = wf.slice(wf.indexOf("\non:"), wf.indexOf("\npermissions:"));

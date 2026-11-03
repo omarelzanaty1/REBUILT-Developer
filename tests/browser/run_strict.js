@@ -246,6 +246,55 @@ const POISON = JSON.stringify({
     await ctx.close();
   }
 
+  /* ---------- 9. the order rows come back in (habits / tasks / schedule items): creation order, a tie broken by id ---------- */
+  {
+    // Stored in an order that is neither creation order nor id order; the ids sort AGAINST creation order.
+    const wrongOrder = () => {
+      const db = serverDb();
+      const mk = (id, title, at, extra) => Object.assign({ id, user_id: 'u1', title, description: '', created_at: at }, extra);
+      const hab = (id, title, at) => mk(id, title, at, { icon: 'flame', xp: 20, frequency: 'daily', target_days: [], time: null });
+      db.tables.habits = [
+        hab('a1000000-0000-4000-8000-000000000000', 'ORD-3-THIRD', '2026-10-03T09:00:00Z'),
+        hab('f2000000-0000-4000-8000-000000000000', 'ORD-5-TIE-B', '2026-10-04T00:00:00'),
+        hab('c3000000-0000-4000-8000-000000000000', 'ORD-1-FIRST', '2026-10-01T09:00:00Z'),
+        hab('f1000000-0000-4000-8000-000000000000', 'ORD-4-TIE-A', '2026-10-04T00:00:00'),
+        hab('b2000000-0000-4000-8000-000000000000', 'ORD-2-SECOND', '2026-10-02T09:00:00Z'),
+      ];
+      const tsk = (id, title, at) => mk(id, title, at, { priority: 'high', date: null, time: null, xp: 25, completed: false, completed_at: null, xp_awarded: 0 });
+      db.tables.tasks = [
+        tsk('a1000000-0000-4000-8000-000000000001', 'ORD-3-THIRD', '2026-10-03T09:00:00Z'),
+        tsk('f2000000-0000-4000-8000-000000000001', 'ORD-5-TIE-B', '2026-10-04T00:00:00'),
+        tsk('c3000000-0000-4000-8000-000000000001', 'ORD-1-FIRST', '2026-10-01T09:00:00Z'),
+        tsk('f1000000-0000-4000-8000-000000000001', 'ORD-4-TIE-A', '2026-10-04T00:00:00'),
+        tsk('b2000000-0000-4000-8000-000000000001', 'ORD-2-SECOND', '2026-10-02T09:00:00Z'),
+      ];
+      const itm = (id, title, at) => mk(id, title, at, { type: 'event', date: '2026-10-05', start_time: '09:00', end_time: null, notes: '', completed: false });
+      db.tables.schedule_items = [
+        itm('a1000000-0000-4000-8000-000000000002', 'ORD-3-THIRD', '2026-10-03T09:00:00Z'),
+        itm('f2000000-0000-4000-8000-000000000002', 'ORD-5-TIE-B', '2026-10-04T00:00:00'),
+        itm('c3000000-0000-4000-8000-000000000002', 'ORD-1-FIRST', '2026-10-01T09:00:00Z'),
+        itm('f1000000-0000-4000-8000-000000000002', 'ORD-4-TIE-A', '2026-10-04T00:00:00'),
+        itm('b2000000-0000-4000-8000-000000000002', 'ORD-2-SECOND', '2026-10-02T09:00:00Z'),
+      ];
+      return db;
+    };
+    const WANT = 'ORD-1-FIRST,ORD-2-SECOND,ORD-3-THIRD,ORD-4-TIE-A,ORD-5-TIE-B';
+    for (const [label, o, base] of [['dev (strict)', { filled: true }, DEV_BASE], ['stable', { base: STABLE_BASE }, STABLE_BASE]]) {
+      const T = (n) => label + ', rows stored out of order: ' + n;
+      const { ctx, page, errors } = await open(Object.assign({ db: wrongOrder() }, o));
+      await page.goto(base + '/#habits', { waitUntil: 'load' });
+      await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page, 800);
+      const shown = await page.$$eval('.row--habit .row__title', (els) => els.map((e) => e.textContent.trim()));
+      const st = await page.evaluate(() => { const s = REBUILT.App.state; return { tasks: s.tasks.map((t) => t.title), items: s.scheduleItems.map((i) => i.title) }; });
+      if (label === 'dev (strict)') await page.screenshot({ path: path.join(OUT, 'strict_order_habits.png') });
+      log(T('the habits page lists the habits in creation order, a tie broken by id'), shown.join() === WANT, shown.join());
+      log(T('the loaded tasks are in creation order, a tie broken by id'), st.tasks.join() === WANT, st.tasks.join());
+      log(T('the loaded schedule items are in creation order, a tie broken by id'), st.items.join() === WANT, st.items.join());
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) console.log('FAILED:\n' + failed.map((f) => ' - ' + f.name).join('\n'));

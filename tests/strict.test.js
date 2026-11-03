@@ -55,13 +55,35 @@ const DEV_KEY = "sb_publishable_UNITTESTUNITTESTUNITTEST";
 function makeClient(cfg) {
   cfg = cfg || {};
   const calls = [];
+  const orders = [];    // every ordered select: { table, cols: [...] } — what the app ASKED the server to sort by
+  const inserts = [];   // every insert payload, as sent
   const tables = cfg.tables || {};
+  // order(col) is REAL here (it used to do nothing, which is why an ordering bug went unseen): ascending, NULLs last — like Postgres.
+  // A timestamp is compared as a moment in time (a value without a zone is UTC, as on Supabase); a uuid / text / date by its characters
+  // (a uuid's byte order is its lowercase hex order).
+  const ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+  const moment = (s) => Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : s + "Z");
+  function compare(a, b) {
+    const na = a === undefined || a === null, nb = b === undefined || b === null;
+    if (na || nb) return na && nb ? 0 : na ? 1 : -1;
+    if (typeof a === "string" && typeof b === "string" && ISO.test(a) && ISO.test(b)) return moment(a) - moment(b);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function sortRows(rows, cols) {
+    return rows.map((r, i) => [r, i]).sort((x, y) => {
+      for (const c of cols) { const d = compare(x[0][c], y[0][c]); if (d) return d; }
+      return x[1] - y[1];   // only rows equal on EVERY ordered column keep the order they were stored in
+    }).map((p) => p[0]);
+  }
   function run(q) {
     calls.push(q.op + ":" + q.table);
+    if (q.op === "select" && q.order.length) orders.push({ table: q.table, cols: q.order.slice() });
+    if (q.op === "insert") inserts.push({ table: q.table, payload: q.payload });
     const err = cfg.errors && (cfg.errors[q.op + ":" + q.table] || cfg.errors["*:" + q.table]);
     if (err) return { data: null, error: err, count: null };
-    const rows = (tables[q.table] || []).filter((r) => q.filters.every(([c, v]) => r[c] === v));
+    let rows = (tables[q.table] || []).filter((r) => q.filters.every(([c, v]) => r[c] === v));
     if (q.op !== "select") return { data: null, error: null, count: null };
+    if (q.order.length) rows = sortRows(rows, q.order);
     const max = cfg.maxRows || Infinity;
     let out = rows;
     if (q.range) out = rows.slice(q.range[0], Math.min(q.range[1] + 1, q.range[0] + max));
@@ -69,7 +91,7 @@ function makeClient(cfg) {
     return { data: q.single ? out[0] || null : out, error: null, count: q.count ? rows.length : null };
   }
   function builder(table) {
-    const q = { table, op: "select", filters: [], range: null, count: null, single: false, payload: null };
+    const q = { table, op: "select", filters: [], range: null, count: null, single: false, payload: null, order: [] };
     const b = {
       select(cols, o) { q.count = o && o.count; return b; },
       insert(p) { q.op = "insert"; q.payload = p; return b; },
@@ -77,7 +99,7 @@ function makeClient(cfg) {
       delete() { q.op = "delete"; return b; },
       upsert(p) { q.op = "upsert"; q.payload = p; return b; },
       eq(c, v) { q.filters.push([c, v]); return b; },
-      order() { return b; },
+      order(col, o) { assert.ok(!o || o.ascending !== false, "this stand-in only knows ascending order"); q.order.push(col); return b; },
       range(a, z) { q.range = [a, z]; return b; },
       maybeSingle() { q.single = true; return b; },
       then(res, rej) { return Promise.resolve(run(q)).then(res, rej); },
@@ -87,6 +109,8 @@ function makeClient(cfg) {
   const signedOut = { data: { user: null }, error: { name: "AuthSessionMissingError", message: "Auth session missing!" } };
   return {
     calls,
+    orders,
+    inserts,
     from: builder,
     auth: {
       getUser: async () => (cfg.userError ? { data: { user: null }, error: cfg.userError } : cfg.signedOut ? signedOut : { data: { user: { id: "u1", email: "a@b.co" } }, error: null }),
@@ -515,6 +539,152 @@ test("a server that cuts answers at 500 rows is handled too (the loop trusts the
   const { R } = boot({ configured: true, client });
   const state = await R.SupabaseData.loadFullState(client, "u1");
   assert.strictEqual(state.habits[0].completionHistory.length, 1700);
+});
+
+/* ============================================================
+   7. The ORDER rows come back in (found in the final review of 9945f0e)
+      Habits / tasks / schedule items / completions were listed by `id` — a random uuid — so a habit created later could be shown
+      before one created earlier. The stable order is  created_at, then id  (id only breaks a tie: it is never the main key).
+      The stand-in client above now really sorts, so these tests can fail.
+   ============================================================ */
+
+/** Rows stored in an order that is neither creation order nor id order, with ids that sort AGAINST creation order, plus a tie. */
+function orderedSeed() {
+  const t = seedTables();
+  const row = (id, title, created_at, extra) => Object.assign({ id, user_id: "u1", title, created_at }, extra);
+  const habit = (id, title, at) => row(id, title, at, { xp: 10, frequency: "daily", target_days: [], icon: "x" });
+  t.habits = [
+    habit("a1000000-0000-4000-8000-000000000000", "third", "2026-11-03T09:00:00Z"),
+    habit("f2000000-0000-4000-8000-000000000000", "tie-B", "2026-11-04T00:00:00"),     // same moment as tie-A, larger id, stored first
+    habit("c3000000-0000-4000-8000-000000000000", "first", "2026-11-01T09:00:00Z"),
+    habit("f1000000-0000-4000-8000-000000000000", "tie-A", "2026-11-04T00:00:00"),
+    habit("b2000000-0000-4000-8000-000000000000", "second", "2026-11-02T09:00:00Z"),
+  ];
+  const task = (id, title, at) => row(id, title, at, { xp: 10, priority: "high", completed: false });
+  t.tasks = [
+    task("a1000000-0000-4000-8000-000000000001", "third", "2026-11-03T09:00:00Z"),
+    task("f2000000-0000-4000-8000-000000000001", "tie-B", "2026-11-04T00:00:00"),
+    task("c3000000-0000-4000-8000-000000000001", "first", "2026-11-01T09:00:00Z"),
+    task("f1000000-0000-4000-8000-000000000001", "tie-A", "2026-11-04T00:00:00"),
+    task("b2000000-0000-4000-8000-000000000001", "second", "2026-11-02T09:00:00Z"),
+  ];
+  const item = (id, title, at) => row(id, title, at, { type: "event", date: "2026-11-05", start_time: "09:00", completed: false });
+  t.schedule_items = [
+    item("a1000000-0000-4000-8000-000000000002", "third", "2026-11-03T09:00:00Z"),
+    item("f2000000-0000-4000-8000-000000000002", "tie-B", "2026-11-04T00:00:00"),
+    item("c3000000-0000-4000-8000-000000000002", "first", "2026-11-01T09:00:00Z"),
+    item("f1000000-0000-4000-8000-000000000002", "tie-A", "2026-11-04T00:00:00"),
+    item("b2000000-0000-4000-8000-000000000002", "second", "2026-11-02T09:00:00Z"),
+  ];
+  const done = (id, on, at) => ({ id, user_id: "u1", habit_id: "c3000000-0000-4000-8000-000000000000", completed_on: on, created_at: at });
+  t.habit_completions = [
+    done("z0000000-0000-4000-8000-000000000003", "2026-11-03", "2026-11-03T08:00:00Z"),
+    done("x0000000-0000-4000-8000-000000000003", "2026-11-02", "2026-11-02T08:00:00Z"),
+    done("y0000000-0000-4000-8000-000000000003", "2026-11-01", "2026-11-01T08:00:00Z"),
+  ];
+  return t;
+}
+const EXPECTED_TITLES = ["first", "second", "third", "tie-A", "tie-B"];
+const BOTH = [["strict (development)", { configured: true, location: DEVLOC }], ["stable", { configured: true, location: STABLE }]];
+
+for (const [label, where] of BOTH) {
+  test("order [" + label + "]: habits come back in creation order, a tie broken by id", async () => {
+    const client = makeClient({ tables: orderedSeed() });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), EXPECTED_TITLES);
+  });
+
+  test("order [" + label + "]: tasks come back in creation order, a tie broken by id", async () => {
+    const client = makeClient({ tables: orderedSeed() });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.tasks.map((t) => t.title)), EXPECTED_TITLES);
+  });
+
+  test("order [" + label + "]: schedule items come back in creation order, a tie broken by id", async () => {
+    const client = makeClient({ tables: orderedSeed() });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.scheduleItems.map((s) => s.title)), EXPECTED_TITLES);
+  });
+
+  test("order [" + label + "]: a habit's completions come back in the order they were recorded", async () => {
+    const client = makeClient({ tables: orderedSeed() });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    const first = state.habits.find((h) => h.title === "first");
+    assert.deepStrictEqual(plain(first.completionHistory), ["2026-11-01", "2026-11-02", "2026-11-03"]);
+  });
+
+  test("order [" + label + "]: the same load twice gives the same order (nothing depends on how the server happens to store rows)", async () => {
+    const seed = orderedSeed();
+    const reversed = Object.assign({}, seed, { habits: seed.habits.slice().reverse(), tasks: seed.tasks.slice().reverse() });
+    const a = makeClient({ tables: seed }), b = makeClient({ tables: reversed });
+    const A = boot(Object.assign({ client: a }, where)), B = boot(Object.assign({ client: b }, where));
+    const sa = await A.R.SupabaseData.loadFullState(a, "u1");
+    const sb = await B.R.SupabaseData.loadFullState(b, "u1");
+    assert.deepStrictEqual(plain(sa.habits.map((h) => h.id)), plain(sb.habits.map((h) => h.id)));
+    assert.deepStrictEqual(plain(sa.tasks.map((t) => t.id)), plain(sb.tasks.map((t) => t.id)));
+  });
+
+  test("order [" + label + "]: the sort the app asks the server for, table by table (pinned)", async () => {
+    const client = makeClient({ tables: orderedSeed() });
+    const { R } = boot(Object.assign({ client }, where));
+    await R.SupabaseData.loadFullState(client, "u1");
+    const asked = {};
+    for (const o of client.orders) {
+      const key = o.cols.join(",");
+      assert.ok(!(o.table in asked) || asked[o.table] === key, o.table + " was read with two different orders: " + asked[o.table] + " and " + key);
+      asked[o.table] = key;
+    }
+    assert.deepStrictEqual(asked, {
+      habits: "created_at,id",
+      habit_completions: "created_at,id",
+      tasks: "created_at,id",
+      schedule_items: "created_at,id",
+      daily_history: "date",
+      unlocked_achievements: "unlocked_at,achievement_id",
+      ai_conversations: "created_at,id",
+    });
+  });
+
+  test("order [" + label + "]: paging stays stable — 2500 rows with many equal timestamps, stored shuffled, 1000 per answer: none repeated, none skipped", async () => {
+    // A tiny deterministic generator, so a failure can be reproduced.
+    let seed = 12345; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    const rows = [];
+    for (let i = 0; i < 2500; i++) {
+      const id = (Math.floor(rnd() * 0xffffffff).toString(16).padStart(8, "0")) + "-0000-4000-8000-" + String(i).padStart(12, "0");
+      rows.push({ id, user_id: "u1", title: "t" + i, xp: 1, priority: "low", completed: false, created_at: "2026-10-" + String(1 + (i % 25)).padStart(2, "0") + "T00:00:00" });   // 25 distinct moments → ~100 rows each
+    }
+    for (let i = rows.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rows[i], rows[j]] = [rows[j], rows[i]]; }
+    const tables = Object.assign(seedTables(), { tasks: rows });
+    const client = makeClient({ tables, maxRows: 1000 });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    const ids = plain(state.tasks.map((t) => t.id));
+    assert.strictEqual(ids.length, 2500, "every row read");
+    assert.strictEqual(new Set(ids).size, 2500, "no row read twice");
+    const expected = rows.slice().sort((x, y) => (x.created_at < y.created_at ? -1 : x.created_at > y.created_at ? 1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0)).map((r) => r.id);
+    assert.deepStrictEqual(ids, expected);
+  });
+}
+
+// KNOWN GAP (needs the owner's decision: it changes what is WRITTEN, on Stable too once promoted).
+// The app writes created_at = «the day» + "T00:00:00", so two habits / tasks made on the same day carry the SAME created_at and are then
+// ordered by their random id: the order is stable from now on, but it is not the order they were made in. Fix: send the moment of creation.
+todo("two habits (tasks) created on the same day carry different created_at values, so their creation order survives a reload", () => {
+  const client = makeClient({ tables: seedTables() });
+  const { R } = boot({ configured: true, client });
+  const mk = (id) => ({ id, title: id, icon: "x", xp: 10, frequency: "daily", targetDays: [], createdAt: "2026-11-03" });
+  R.SupabaseData.insertHabit(client, "u1", mk("first"));
+  R.SupabaseData.insertHabit(client, "u1", mk("second"));
+  R.SupabaseData.insertTask(client, "u1", { id: "t-first", title: "a", priority: "low", xp: 5, createdAt: "2026-11-03" });
+  R.SupabaseData.insertTask(client, "u1", { id: "t-second", title: "b", priority: "low", xp: 5, createdAt: "2026-11-03" });
+  const at = (table) => client.inserts.filter((i) => i.table === table).map((i) => i.payload.created_at);
+  assert.strictEqual(at("habits").length, 2);
+  assert.notStrictEqual(at("habits")[0], at("habits")[1], "habits made one after the other share created_at = " + at("habits")[0]);
+  assert.notStrictEqual(at("tasks")[0], at("tasks")[1], "tasks made one after the other share created_at = " + at("tasks")[0]);
 });
 
 /* ============================================================

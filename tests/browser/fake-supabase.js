@@ -98,7 +98,7 @@
 
   /* ---------------- query builder ---------------- */
   function builder(table) {
-    const q = { table, op: "select", payload: null, filters: [], single: false, opts: null, count: null, range: null };
+    const q = { table, op: "select", payload: null, filters: [], single: false, opts: null, count: null, range: null, order: [] };
     const api = {
       select(cols, o) { q.count = (o && o.count) || null; return api; },
       range(a, z) { q.range = [a, z]; return api; },
@@ -107,7 +107,8 @@
       delete() { q.op = "delete"; return api; },
       upsert(p, o) { q.op = "upsert"; q.payload = p; q.opts = o || {}; return api; },
       eq(c, v) { q.filters.push([c, v]); return api; },
-      order() { return api; },
+      // REAL ordering (it used to do nothing, which hid an ordering bug): ascending, NULLs last, like Postgres. Only a descending request is refused.
+      order(col, o) { if (o && o.ascending === false) throw new Error("fake-supabase: descending order is not implemented"); q.order.push(col); return api; },
       maybeSingle() { q.single = true; return api; },
       single() { q.single = true; return api; },
       then(res, rej) { return run(q).then(res, rej); },
@@ -116,6 +117,23 @@
   }
 
   const match = (row, filters) => filters.every(([c, v]) => row[c] === v);
+
+  // ORDER BY, as Postgres does it: ascending, NULLs last; a timestamp is compared as a moment (no zone = UTC, as on Supabase),
+  // anything else (uuid, text, date) by its characters. Rows equal on every ordered column keep the order they are stored in.
+  const ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+  const moment = (s) => Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : s + "Z");
+  function compare(a, b) {
+    const na = a === undefined || a === null, nb = b === undefined || b === null;
+    if (na || nb) return na && nb ? 0 : na ? 1 : -1;
+    if (typeof a === "string" && typeof b === "string" && ISO.test(a) && ISO.test(b)) return moment(a) - moment(b);
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function sortRows(rows, cols) {
+    return rows.map((r, i) => [r, i]).sort((x, y) => {
+      for (const c of cols) { const d = compare(x[0][c], y[0][c]); if (d) return d; }
+      return x[1] - y[1];
+    }).map((p) => p[0]);
+  }
   const fail = (table, op, code, message) => { const err = { code, message }; sb.errors.push({ table, op, code, message }); return { data: null, error: err }; };
 
   async function run(q) {
@@ -143,7 +161,8 @@
     if (!rows) return fail(q.table, q.op, "42P01", "relation does not exist: " + q.table);
 
     if (q.op === "select") {
-      const found = rows.filter((r) => match(r, q.filters)).map((r) => Object.assign({}, r));
+      let found = rows.filter((r) => match(r, q.filters)).map((r) => Object.assign({}, r));
+      if (q.order.length && !q.single) found = sortRows(found, q.order);
       if (q.single) return { data: found[0] || null, error: null };
       // like the real API: one answer holds at most maxRows rows (and exactly the requested range when there is one)
       const cap = sb.cfg.maxRows || Infinity;

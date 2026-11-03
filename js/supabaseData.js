@@ -133,7 +133,10 @@ REBUILT.SupabaseData = (function () {
     const strict = strictOn();
     // In strict mode a query that THROWS is just another failed query: all failures are collected and reported together.
     const guard = (p) => (strict ? Promise.resolve(p).then((r) => r, (e) => ({ data: null, error: e || { message: "request failed" } })) : p);
-    // Paging needs a total order, or two pages could repeat / skip a row: every list is ordered by its key (conversations by time, then id).
+    // Paging needs a TOTAL order, or two pages could repeat / skip a row — and the order is what the person sees (the habits page lists
+    // state.habits as loaded). So every list is ordered by WHEN it was made first and by its key only to break a tie: created_at, then id.
+    // (Ordering by id alone would be a random order: ids are random uuids.) Tables without created_at use their own natural pair:
+    // unlocked_achievements → unlocked_at, achievement_id; daily_history → date (its key).
     const list = (table, columns, orderBy) =>
       guard(fetchAll(() => orderBy.reduce((q, col) => q.order(col, { ascending: true }), sb.from(table).select(columns, { count: "exact" }).eq("user_id", userId))));
 
@@ -153,12 +156,12 @@ REBUILT.SupabaseData = (function () {
       guard(sb.from("profiles").select("*").eq("id", userId).maybeSingle()),
       guard(sb.from("user_profiles").select("*").eq("user_id", userId).maybeSingle()),
       guard(sb.from("ai_profiles").select("*").eq("user_id", userId).maybeSingle()),
-      list("habits", "*", ["id"]),
-      list("habit_completions", "habit_id, completed_on", ["id"]),
-      list("tasks", "*", ["id"]),
-      list("schedule_items", "*", ["id"]),
+      list("habits", "*", ["created_at", "id"]),
+      list("habit_completions", "habit_id, completed_on", ["created_at", "id"]),
+      list("tasks", "*", ["created_at", "id"]),
+      list("schedule_items", "*", ["created_at", "id"]),
       list("daily_history", "*", ["date"]),
-      list("unlocked_achievements", "*", ["achievement_id"]),
+      list("unlocked_achievements", "*", ["unlocked_at", "achievement_id"]),
       guard(sb.from("user_xp_totals").select("total_xp").eq("user_id", userId).maybeSingle()),
       list("ai_conversations", "role, content, created_at", ["created_at", "id"]),
     ]);
