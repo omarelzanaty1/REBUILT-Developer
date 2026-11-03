@@ -388,6 +388,7 @@ REBUILT.App = (function () {
         targetDays: payload.targetDays || [],
         time: payload.time || null,
         createdAt: todayISO(),
+        createdStamp: REBUILT.Data.stampNow(), // the moment, for the server's created_at (createdAt stays the day: streaks and the UI read that)
         completionHistory: [],
         currentStreak: 0,
         longestStreak: 0,
@@ -473,6 +474,7 @@ REBUILT.App = (function () {
         completed: false,
         completedAt: null,
         createdAt: todayISO(),
+        createdStamp: REBUILT.Data.stampNow(), // the moment, for the server's created_at (createdAt stays the day)
       };
       state.tasks.push(task);
       REBUILT.Storage.syncAddTask(state.user.id, task);

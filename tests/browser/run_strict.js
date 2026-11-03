@@ -295,6 +295,75 @@ const POISON = JSON.stringify({
     }
   }
 
+  /* ---------- 10. created_at is the MOMENT of creation: same-day habits / tasks keep their creation order after a reload, undo included ---------- */
+  {
+    const cairoToday = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Africa/Cairo' }).format(new Date());   // YYYY-MM-DD, the day the page (timezoneId Africa/Cairo) calls «today»
+    const addMany = (page, kind, titles, pauseAfter) => page.evaluate(async ({ kind, titles, pauseAfter }) => {
+      const A = REBUILT.Actions, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (const [i, title] of titles.entries()) {
+        if (kind === 'habit') A.addHabit({ title, icon: 'flame', xp: 20, frequency: 'daily', targetDays: [], time: null });
+        else A.addTask({ title, priority: 'low', xp: 10, date: null, time: null });
+        if (pauseAfter && i === pauseAfter - 1) await sleep(60);        // the first ones in the same millisecond, the rest a little later
+      }
+    }, { kind, titles, pauseAfter });
+    const shownHabits = (page) => page.$$eval('.row--habit .row__title', (els) => els.map((e) => e.textContent.trim()));
+    const loaded = (page) => page.evaluate(() => { const s = REBUILT.App.state; return { habits: s.habits.map((h) => h.title), habitDays: s.habits.map((h) => h.createdAt), tasks: s.tasks.map((t) => t.title), taskDays: s.tasks.map((t) => t.createdAt) }; });
+    const reload = async (page) => { await page.reload({ waitUntil: 'load' }); await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page, 800); };
+    const NEWH = ['NEW-H1', 'NEW-H2', 'NEW-H3', 'NEW-H4', 'NEW-H5', 'NEW-H6'], NEWT = ['NEW-T1', 'NEW-T2', 'NEW-T3', 'NEW-T4', 'NEW-T5', 'NEW-T6'];
+
+    for (const [label, o, base] of [['dev (strict)', { filled: true }, DEV_BASE], ['stable', { base: STABLE_BASE }, STABLE_BASE]]) {
+      const T = (n) => label + ', created on the same day: ' + n;
+      const { ctx, page, errors } = await open(Object.assign({ db: serverDb() }, o));
+      await page.goto(base + '/#habits', { waitUntil: 'load' });
+      await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page);
+      await addMany(page, 'habit', NEWH, 3); await addMany(page, 'task', NEWT, 3);
+      await settle(page, 1800);
+      await reload(page);
+      const a = await loaded(page);
+      if (label === 'dev (strict)') await page.screenshot({ path: path.join(OUT, 'strict_order_same_day.png') });
+      log(T('after a reload the habits are in the order they were made (6 of them: 3 in one millisecond, 3 a moment later)'), a.habits.join() === ['SERVER-HABIT'].concat(NEWH).join(), a.habits.join());
+      log(T('the habits page shows them in that order too'), (await shownHabits(page)).join() === ['SERVER-HABIT'].concat(NEWH).join(), (await shownHabits(page)).join());
+      log(T('the tasks are in the order they were made'), a.tasks.join() === ['SERVER-TASK'].concat(NEWT).join(), a.tasks.join());
+      log(T('the day of each is still the day it was made (no day-shift from the time)'), a.habitDays.slice(1).every((d) => d === cairoToday) && a.taskDays.slice(1).every((d) => d === cairoToday), a.habitDays.join() + ' | today=' + cairoToday);
+
+      // undo: delete the 3rd new habit / task and bring it back
+      const ids = await page.evaluate(() => { const s = REBUILT.App.state; return { h: s.habits[3].id, t: s.tasks[3].id }; });
+      await page.evaluate(async (ids) => {
+        const A = REBUILT.Actions, s = REBUILT.App.state, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const hi = s.habits.findIndex((x) => x.id === ids.h), ti = s.tasks.findIndex((x) => x.id === ids.t);
+        const hs = JSON.parse(JSON.stringify(s.habits[hi])), ts = JSON.parse(JSON.stringify(s.tasks[ti]));   // what the undo toast keeps: a clone
+        A.deleteHabit(ids.h); A.deleteTask(ids.t);
+        await sleep(700);
+        A.restoreHabit(hs, hi); A.restoreTask(ts, ti);
+      }, ids);
+      await settle(page, 1800);
+      await reload(page);
+      const b = await loaded(page);
+      log(T('undo: a deleted-then-restored habit and task are back in their own place after a reload'), b.habits.join() === ['SERVER-HABIT'].concat(NEWH).join() && b.tasks.join() === ['SERVER-TASK'].concat(NEWT).join(), b.habits.join() + ' | ' + b.tasks.join());
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+
+    // old data: rows written as «day + T00:00:00» (what every earlier version wrote), then new ones made today
+    for (const [label, o, base] of [['dev (strict)', { filled: true }, DEV_BASE], ['stable', { base: STABLE_BASE }, STABLE_BASE]]) {
+      const T = (n) => label + ', old rows (day only) + new rows today: ' + n;
+      const db = serverDb();
+      const old = (id, title) => Object.assign({}, db.tables.habits[0], { id, title, created_at: cairoToday + 'T00:00:00+00:00' });
+      db.tables.habits = [old('f0000000-0000-4000-8000-00000000aaaa', 'OLD-F'), old('a0000000-0000-4000-8000-00000000aaaa', 'OLD-A'), old('c0000000-0000-4000-8000-00000000aaaa', 'OLD-C')];
+      const { ctx, page, errors } = await open(Object.assign({ db }, o));
+      await page.goto(base + '/#habits', { waitUntil: 'load' });
+      await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page);
+      const before = await loaded(page);
+      log(T('the old rows load as they always did: by id inside their day'), before.habits.join() === 'OLD-A,OLD-C,OLD-F' && before.habitDays.every((d) => d === cairoToday), before.habits.join() + ' | ' + before.habitDays.join());
+      await addMany(page, 'habit', ['NEW-1', 'NEW-2', 'NEW-3'], 1); await settle(page, 1500);
+      await reload(page);
+      const after = await loaded(page);
+      log(T('the new ones come after the old ones of the same day, in the order they were made'), after.habits.join() === 'OLD-A,OLD-C,OLD-F,NEW-1,NEW-2,NEW-3', after.habits.join());
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) console.log('FAILED:\n' + failed.map((f) => ' - ' + f.name).join('\n'));

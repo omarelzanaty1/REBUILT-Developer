@@ -21,6 +21,28 @@ window.REBUILT = window.REBUILT || {};
 REBUILT.SupabaseData = (function () {
   /* ---------------- Row → client-shape mapping ---------------- */
 
+  /*
+   * created_at — WHEN a habit / task / schedule item was made, which is what decides the order they come back in (see loadFullState).
+   *   habits, tasks      the client writes the moment (`createdStamp`, from Data.stampNow(): local wall-clock, no zone). The first 10 characters
+   *                      of what the server returns stay the LOCAL day, because that is the frame the old day-only value «2026-11-03T00:00:00»
+   *                      was in: createdAt (the day — streaks and the screens read it) never moves, and old rows need no migration.
+   *   schedule_items     nothing is sent for a NEW item: the server's now() is the real time (it was never day-only).
+   *   habit_completions  the same: the server's now().
+   *   unlocked_achievements  has only a DATE column (unlocked_at) and no created_at: nothing finer can be recorded without a migration.
+   * `createdStamp` rides along on the object the app holds, so an «undo» (re-inserting a deleted row) writes the ORIGINAL moment back and the
+   * row returns to its own place. An object without one (an older local copy, an imported file, demo data) is written as before: the day only.
+   */
+  const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+  const validStamp = (s) => (typeof s === "string" && STAMP.test(s) ? s : null);
+
+  /** The created_at to write for a habit / task. A stamp is used only if it belongs to the object's own day (createdAt = first 10 characters of created_at). */
+  function createdAtFor(x) {
+    const day = x.createdAt || null;
+    const stamp = validStamp(x.createdStamp);
+    if (stamp && (!day || stamp.slice(0, 10) === day)) return stamp;
+    return day ? day + "T00:00:00" : undefined;
+  }
+
   function habitFromRow(row, allCompletions) {
     const completionHistory = allCompletions
       .filter((c) => c.habit_id === row.id)
@@ -35,6 +57,7 @@ REBUILT.SupabaseData = (function () {
       targetDays: row.target_days || [],
       time: row.time || null,
       createdAt: row.created_at ? row.created_at.slice(0, 10) : null,
+      createdStamp: row.created_at || null,
       completionHistory,
       currentStreak: 0, // recomputed right after load via REBUILT.Streak, same as local mode
       longestStreak: 0,
@@ -53,6 +76,7 @@ REBUILT.SupabaseData = (function () {
       completed: row.completed,
       completedAt: row.completed_at || null,
       createdAt: row.created_at ? row.created_at.slice(0, 10) : null,
+      createdStamp: row.created_at || null,
     };
   }
 
@@ -66,6 +90,7 @@ REBUILT.SupabaseData = (function () {
       endTime: row.end_time || null,
       notes: row.notes || "",
       completed: row.completed,
+      createdStamp: row.created_at || null, // kept so that an undo writes the original moment back (see created_at above)
     };
   }
 
@@ -288,7 +313,7 @@ REBUILT.SupabaseData = (function () {
       frequency: habit.frequency,
       target_days: habit.targetDays || [],
       time: habit.time || null,
-      created_at: habit.createdAt ? habit.createdAt + "T00:00:00" : undefined,
+      created_at: createdAtFor(habit),
     }));
   }
 
@@ -337,7 +362,7 @@ REBUILT.SupabaseData = (function () {
       completed: false,
       completed_at: null,
       xp_awarded: 0,
-      created_at: task.createdAt ? task.createdAt + "T00:00:00" : undefined,
+      created_at: createdAtFor(task),
     }));
   }
 
@@ -373,6 +398,8 @@ REBUILT.SupabaseData = (function () {
       end_time: item.endTime || null,
       notes: item.notes || "",
       completed: false,
+      // a new item has no stamp: the server's now() is its real creation time. An undo carries the original one back.
+      created_at: validStamp(item.createdStamp) || undefined,
     }));
   }
 

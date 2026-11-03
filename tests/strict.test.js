@@ -57,7 +57,20 @@ function makeClient(cfg) {
   const calls = [];
   const orders = [];    // every ordered select: { table, cols: [...] } — what the app ASKED the server to sort by
   const inserts = [];   // every insert payload, as sent
+  const updates = [];   // every update payload, as sent
+  const upserts = [];   // every upsert payload, as sent
   const tables = cfg.tables || {};
+  // cfg.persist: inserts / deletes really change the tables, like a server (off by default: most tests only read).
+  // A column the server fills in (created_at → now()) is filled in here too, from a fake server clock that ticks one second per use;
+  // a timestamp comes back the way Postgres prints it (UTC, «+00:00», no trailing zeros), whatever shape it was sent in.
+  let serverTick = 0;
+  const serverNow = () => new Date(Date.UTC(2026, 10, 3, 12, 0, 0) + 1000 * serverTick++).toISOString();
+  const WITH_CREATED_AT = ["habits", "habit_completions", "tasks", "schedule_items", "ai_conversations"];
+  function pgTimestamp(s) {
+    const iso = new Date(moment(String(s))).toISOString();                 // 2026-11-03T21:38:12.345Z
+    const frac = iso.slice(19, 23).replace(/\.?0+$/, "");                 // ".345" → ".345", ".300" → ".3", ".000" → ""
+    return iso.slice(0, 19) + frac + "+00:00";
+  }
   // order(col) is REAL here (it used to do nothing, which is why an ordering bug went unseen): ascending, NULLs last — like Postgres.
   // A timestamp is compared as a moment in time (a value without a zone is UTC, as on Supabase); a uuid / text / date by its characters
   // (a uuid's byte order is its lowercase hex order).
@@ -79,8 +92,24 @@ function makeClient(cfg) {
     calls.push(q.op + ":" + q.table);
     if (q.op === "select" && q.order.length) orders.push({ table: q.table, cols: q.order.slice() });
     if (q.op === "insert") inserts.push({ table: q.table, payload: q.payload });
+    if (q.op === "update") updates.push({ table: q.table, payload: q.payload });
+    if (q.op === "upsert") upserts.push({ table: q.table, payload: q.payload });
     const err = cfg.errors && (cfg.errors[q.op + ":" + q.table] || cfg.errors["*:" + q.table]);
     if (err) return { data: null, error: err, count: null };
+    if (cfg.persist && q.op === "insert") {
+      for (const p of Array.isArray(q.payload) ? q.payload : [q.payload]) {
+        const row = Object.assign({}, p);
+        Object.keys(row).forEach((k) => { if (row[k] === undefined) delete row[k]; });   // an undefined value is never sent, exactly like JSON
+        if (row.created_at === undefined && WITH_CREATED_AT.indexOf(q.table) !== -1) row.created_at = serverNow();
+        if (row.created_at !== undefined) row.created_at = pgTimestamp(row.created_at);
+        (tables[q.table] = tables[q.table] || []).push(row);
+      }
+      return { data: null, error: null, count: null };
+    }
+    if (cfg.persist && q.op === "delete") {
+      tables[q.table] = (tables[q.table] || []).filter((r) => !q.filters.every(([c, v]) => r[c] === v));
+      return { data: null, error: null, count: null };
+    }
     let rows = (tables[q.table] || []).filter((r) => q.filters.every(([c, v]) => r[c] === v));
     if (q.op !== "select") return { data: null, error: null, count: null };
     if (q.order.length) rows = sortRows(rows, q.order);
@@ -111,6 +140,8 @@ function makeClient(cfg) {
     calls,
     orders,
     inserts,
+    updates,
+    upserts,
     from: builder,
     auth: {
       getUser: async () => (cfg.userError ? { data: { user: null }, error: cfg.userError } : cfg.signedOut ? signedOut : { data: { user: { id: "u1", email: "a@b.co" } }, error: null }),
@@ -670,21 +701,248 @@ for (const [label, where] of BOTH) {
   });
 }
 
-// KNOWN GAP (needs the owner's decision: it changes what is WRITTEN, on Stable too once promoted).
-// The app writes created_at = «the day» + "T00:00:00", so two habits / tasks made on the same day carry the SAME created_at and are then
-// ordered by their random id: the order is stable from now on, but it is not the order they were made in. Fix: send the moment of creation.
-todo("two habits (tasks) created on the same day carry different created_at values, so their creation order survives a reload", () => {
+/* ============================================================
+   8. created_at carries the MOMENT of creation (not only the day)
+      The app used to write created_at = «the day» + "T00:00:00", so everything made on one day tied and was ordered by its random id.
+      Now a habit / task carries `createdStamp` (the local wall-clock moment, made by Data.stampNow) and that is what is written.
+      - The stamp is written in the SAME frame the old value was (local time, no zone, read back as if UTC), so the day part —
+        which is all the app ever reads back (createdAt = the first 10 characters) — never changes by a day.
+      - Old rows (a day only) and old objects (no stamp) keep working exactly as before.
+      - Schedule items and completions were never date-only: the server's now() stamps them, and nothing is sent for a new one.
+      - The achievements table only has a DATE column (unlocked_at); there is nothing finer to record without a migration.
+   ============================================================ */
+
+const asUTC = (s) => Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(s) ? s : s + "Z");   // how the database reads a timestamp: no zone = UTC
+const local = (y, mo, d, h, mi, s, ms) => new Date(y, mo - 1, d, h || 0, mi || 0, s || 0, ms || 0).getTime();   // a moment given as wall-clock numbers (any time zone)
+
+/** js/data.js in a bare context of its own, with a clock the test moves. */
+function loadData(startMs) {
+  let nowMs = startMs;
+  class FakeDate extends Date {
+    constructor(...a) { if (a.length) super(...a); else super(nowMs); }
+    static now() { return nowMs; }
+  }
+  const sandbox = { console, Date: FakeDate };
+  sandbox.window = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(read("js/data.js"), sandbox, { filename: "js/data.js" });
+  return { Data: sandbox.REBUILT.Data, set(ms) { nowMs = ms; } };
+}
+
+test("Data.stampNow(): the local wall-clock moment, to the millisecond, no zone; its day is exactly todayISO()", () => {
+  const D = loadData(local(2026, 11, 3, 21, 38, 12, 345));
+  assert.strictEqual(typeof D.Data.stampNow, "function", "REBUILT.Data.stampNow() is missing");
+  assert.strictEqual(D.Data.stampNow(), "2026-11-03T21:38:12.345");
+  D.set(local(2026, 11, 3, 23, 59, 59, 999));
+  const late = D.Data.stampNow();
+  assert.strictEqual(late, "2026-11-03T23:59:59.999");
+  assert.strictEqual(late.slice(0, 10), D.Data.todayISO(), "the stamp's day and the app's «today» must be the same day (createdAt is that day)");
+  D.set(local(2026, 11, 4, 0, 0, 0, 1));
+  assert.strictEqual(D.Data.stampNow().slice(0, 10), D.Data.todayISO());
+  assert.ok(!Number.isNaN(Date.parse(D.Data.stampNow() + "Z")), "must be a timestamp Postgres accepts");
+});
+
+test("Data.stampNow(): every call is later than the one before, even inside the same millisecond (rows made in a loop keep their order)", () => {
+  const D = loadData(local(2026, 11, 3, 9, 0, 0, 0));
+  const got = [];
+  for (let i = 0; i < 6; i++) got.push(D.Data.stampNow());                       // the clock never moves
+  assert.deepStrictEqual(got.slice().sort(), got, "not increasing: " + got.join(" "));
+  assert.strictEqual(new Set(got).size, 6, "two calls gave the same stamp");
+  assert.strictEqual(got[0], "2026-11-03T09:00:00.000");
+});
+
+test("Data.stampNow(): follows a clock that moves back (summer-time change) without ever repeating — and obeys a clock set back for good", () => {
+  const D = loadData(local(2026, 11, 3, 9, 0, 0, 0));
+  const a = D.Data.stampNow();
+  D.set(local(2026, 11, 3, 8, 0, 0, 0));                                          // the clock went back one hour
+  const b = D.Data.stampNow();
+  assert.ok(b > a, "a stamp made after another must sort after it: " + a + " then " + b);
+  D.set(local(2026, 11, 3, 3, 0, 0, 0));                                          // six hours back: this is not a summer-time change, trust the clock
+  assert.strictEqual(D.Data.stampNow(), "2026-11-03T03:00:00.000");
+});
+
+/** A habit / task as the app holds it right after creating it. */
+const madeHabit = (id, title, stamp) => ({ id, title, icon: "x", xp: 10, frequency: "daily", targetDays: [], createdAt: stamp.slice(0, 10), createdStamp: stamp });
+const madeTask = (id, title, stamp) => ({ id, title, priority: "low", xp: 5, completed: false, createdAt: stamp.slice(0, 10), createdStamp: stamp });
+const noWrittenTables = () => Object.assign(seedTables(), { habits: [], tasks: [], schedule_items: [], habit_completions: [] });
+// ids that sort AGAINST creation order, so «ordered by id» and «ordered by creation» can never agree by luck
+const IDS = ["d4000000-0000-4000-8000-0000000000", "c3000000-0000-4000-8000-0000000000", "b2000000-0000-4000-8000-0000000000", "a1000000-0000-4000-8000-0000000000"];
+
+for (const [label, where] of BOTH) {
+  test("same day, different times [" + label + "]: habits keep their creation order after a reload — whatever order the writes arrive in, whatever the ids", async () => {
+    const D = loadData(local(2026, 11, 3, 9, 30));
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const made = [9, 13, 17, 21].map((h, i) => { D.set(local(2026, 11, 3, h, 30)); return madeHabit(IDS[i] + "01", "h" + i, D.Data.stampNow()); });
+    for (const i of [2, 0, 3, 1]) await R.SupabaseData.insertHabit(client, "u1", made[i]);      // arrival order ≠ creation order
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["h0", "h1", "h2", "h3"]);
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.createdAt)), ["2026-11-03", "2026-11-03", "2026-11-03", "2026-11-03"], "the DAY must not move");
+  });
+
+  test("same day, different times [" + label + "]: tasks keep their creation order after a reload", async () => {
+    const D = loadData(local(2026, 11, 3, 9, 30));
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const made = [9, 13, 17, 21].map((h, i) => { D.set(local(2026, 11, 3, h, 30)); return madeTask(IDS[i] + "02", "t" + i, D.Data.stampNow()); });
+    for (const i of [3, 1, 0, 2]) await R.SupabaseData.insertTask(client, "u1", made[i]);
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.tasks.map((t) => t.title)), ["t0", "t1", "t2", "t3"]);
+    assert.deepStrictEqual(plain(state.tasks.map((t) => t.createdAt)), ["2026-11-03", "2026-11-03", "2026-11-03", "2026-11-03"]);
+  });
+
+  test("same moment's millisecond [" + label + "]: habits made in a loop (the clock does not move) keep the order they were made in", async () => {
+    const D = loadData(local(2026, 11, 3, 9, 30));
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const made = [0, 1, 2, 3].map((i) => madeHabit(IDS[i] + "03", "h" + i, D.Data.stampNow()));
+    for (const h of made.slice().reverse()) await R.SupabaseData.insertHabit(client, "u1", h);
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["h0", "h1", "h2", "h3"]);
+  });
+
+  test("the day never moves [" + label + "]: made at 23:59:59.999 or 00:00:00.001 local, createdAt is that local day, not the next or the previous", async () => {
+    const D = loadData(local(2026, 11, 3, 23, 59, 59, 999));
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const late = madeHabit("a0000000-0000-4000-8000-000000000004", "late", D.Data.stampNow());
+    D.set(local(2026, 11, 4, 0, 0, 0, 1));
+    const early = madeHabit("a0000000-0000-4000-8000-000000000005", "early", D.Data.stampNow());
+    await R.SupabaseData.insertHabit(client, "u1", late);
+    await R.SupabaseData.insertHabit(client, "u1", early);
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => [h.title, h.createdAt])), [["late", "2026-11-03"], ["early", "2026-11-04"]]);
+  });
+
+  test("undo [" + label + "]: a deleted habit / task that is restored goes back to ITS place, not to the end or the start of its day", async () => {
+    const D = loadData(local(2026, 11, 3, 9, 30));
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    for (const [i, h] of [9, 13, 17, 21].entries()) {
+      D.set(local(2026, 11, 3, h, 30));
+      const at = D.Data.stampNow();
+      await R.SupabaseData.insertHabit(client, "u1", madeHabit(IDS[i] + "06", "h" + i, at));
+      await R.SupabaseData.insertTask(client, "u1", madeTask(IDS[i] + "07", "t" + i, at));
+    }
+    let state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["h0", "h1", "h2", "h3"]);
+    const habit = JSON.parse(JSON.stringify(state.habits[1])), task = JSON.parse(JSON.stringify(state.tasks[1]));   // what the app keeps for «undo»: a clone of the object it showed
+    await R.SupabaseData.deleteHabit(client, habit.id);
+    await R.SupabaseData.deleteTask(client, task.id);
+    state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["h0", "h2", "h3"]);
+    await R.SupabaseData.insertHabit(client, "u1", habit);                                                         // undo = the same insert again
+    await R.SupabaseData.insertTask(client, "u1", task);
+    state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["h0", "h1", "h2", "h3"], "the restored habit moved");
+    assert.deepStrictEqual(plain(state.tasks.map((t) => t.title)), ["t0", "t1", "t2", "t3"], "the restored task moved");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.createdAt)), ["2026-11-03", "2026-11-03", "2026-11-03", "2026-11-03"]);
+  });
+
+  test("schedule items [" + label + "]: a new one sends NO created_at (the server's now() is the real time) and they keep creation order; undo puts one back in place", async () => {
+    const client = makeClient({ tables: noWrittenTables(), persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const item = (id, title) => ({ id, title, type: "event", date: "2026-11-05", startTime: "09:00", endTime: null, notes: "" });
+    for (let i = 0; i < 4; i++) await R.SupabaseData.insertScheduleItem(client, "u1", item(IDS[i] + "08", "s" + i));
+    assert.ok(client.inserts.filter((x) => x.table === "schedule_items").every((x) => x.payload.created_at === undefined), "a new item must leave created_at to the server");
+    let state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.scheduleItems.map((s) => s.title)), ["s0", "s1", "s2", "s3"]);
+    const snapshot = JSON.parse(JSON.stringify(state.scheduleItems[1]));
+    await R.SupabaseData.deleteScheduleItem(client, snapshot.id);
+    await R.SupabaseData.insertScheduleItem(client, "u1", snapshot);
+    state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.scheduleItems.map((s) => s.title)), ["s0", "s1", "s2", "s3"], "the restored item moved to the end");
+  });
+}
+
+/* ---- old data keeps working ---- */
+
+for (const [label, where] of BOTH) {
+  test("old data [" + label + "]: rows written as «day + T00:00:00» load in the order they always had (created_at, then id), with the same createdAt", async () => {
+    const t = noWrittenTables();
+    const row = (id, title) => ({ id, user_id: "u1", title, xp: 10, frequency: "daily", target_days: [], icon: "x", created_at: "2026-10-30T00:00:00+00:00" });
+    t.habits = [row("c3000000-0000-4000-8000-000000000009", "legacy-c"), row("a1000000-0000-4000-8000-000000000009", "legacy-a"), row("b2000000-0000-4000-8000-000000000009", "legacy-b"),
+      Object.assign(row("0f000000-0000-4000-8000-000000000009", "older-day"), { created_at: "2026-10-29T00:00:00+00:00" })];
+    const client = makeClient({ tables: t });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["older-day", "legacy-a", "legacy-b", "legacy-c"]);
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.createdAt)), ["2026-10-29", "2026-10-30", "2026-10-30", "2026-10-30"]);
+  });
+
+  test("old data [" + label + "]: old rows and new rows of the same day mix cleanly — the old ones first, the new ones in the order they were made", async () => {
+    const D = loadData(local(2026, 11, 3, 10, 0));
+    const t = noWrittenTables();
+    const legacy = (id, title) => ({ id, user_id: "u1", title, xp: 10, frequency: "daily", target_days: [], icon: "x", created_at: "2026-11-03T00:00:00+00:00" });
+    t.habits = [legacy("f0000000-0000-4000-8000-00000000000a", "old-2"), legacy("e0000000-0000-4000-8000-00000000000a", "old-1")];
+    const client = makeClient({ tables: t, persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const first = madeHabit("00000000-0000-4000-8000-00000000000a", "new-1", D.Data.stampNow());
+    D.set(local(2026, 11, 3, 15, 0));
+    const second = madeHabit("00000001-0000-4000-8000-00000000000a", "new-2", D.Data.stampNow());
+    await R.SupabaseData.insertHabit(client, "u1", second);
+    await R.SupabaseData.insertHabit(client, "u1", first);
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    assert.deepStrictEqual(plain(state.habits.map((h) => h.title)), ["old-1", "old-2", "new-1", "new-2"]);
+    assert.ok(state.habits.every((h) => h.createdAt === "2026-11-03"));
+  });
+
+  test("old data [" + label + "]: an old row that is restored (undo) is written back with the SAME created_at it had", async () => {
+    const t = noWrittenTables();
+    t.habits = [{ id: "a1000000-0000-4000-8000-00000000000b", user_id: "u1", title: "legacy", xp: 10, frequency: "daily", target_days: [], icon: "x", created_at: "2026-10-30T00:00:00+00:00" }];
+    t.tasks = [{ id: "a1000000-0000-4000-8000-00000000000c", user_id: "u1", title: "legacy", xp: 5, priority: "low", completed: false, created_at: "2026-10-30T00:00:00+00:00" }];
+    const client = makeClient({ tables: t, persist: true });
+    const { R } = boot(Object.assign({ client }, where));
+    const state = await R.SupabaseData.loadFullState(client, "u1");
+    await R.SupabaseData.insertHabit(client, "u1", JSON.parse(JSON.stringify(state.habits[0])));
+    await R.SupabaseData.insertTask(client, "u1", JSON.parse(JSON.stringify(state.tasks[0])));
+    for (const i of client.inserts) assert.strictEqual(asUTC(i.payload.created_at), asUTC("2026-10-30T00:00:00+00:00"), i.table + " was written back with " + i.payload.created_at);
+  });
+}
+
+test("old objects: a habit / task WITHOUT a stamp (an older local copy, an imported file, demo data) is written exactly as before: day + T00:00:00", async () => {
+  for (const [, where] of BOTH) {
+    const client = makeClient({ tables: noWrittenTables() });
+    const { R } = boot(Object.assign({ client }, where));
+    await R.SupabaseData.insertHabit(client, "u1", { id: "h", title: "x", icon: "x", xp: 10, frequency: "daily", targetDays: [], createdAt: "2026-10-30" });
+    await R.SupabaseData.insertTask(client, "u1", { id: "t", title: "x", priority: "low", xp: 5, createdAt: "2026-10-30" });
+    assert.deepStrictEqual(client.inserts.map((i) => i.payload.created_at), ["2026-10-30T00:00:00", "2026-10-30T00:00:00"]);
+    await R.SupabaseData.insertHabit(client, "u1", { id: "h2", title: "x", icon: "x", xp: 10, frequency: "daily", targetDays: [] });
+    assert.strictEqual(client.inserts[2].payload.created_at, undefined, "no createdAt at all → leave it to the server (as before)");
+  }
+});
+
+test("a stamp that does not belong to the habit's day is NOT trusted (createdAt must stay the first 10 characters of created_at)", async () => {
+  const client = makeClient({ tables: noWrittenTables() });
+  const { R } = boot({ configured: true, client });
+  await R.SupabaseData.insertHabit(client, "u1", { id: "h", title: "x", icon: "x", xp: 10, frequency: "daily", targetDays: [], createdAt: "2026-10-30", createdStamp: "2026-11-03T10:00:00.000" });
+  await R.SupabaseData.insertTask(client, "u1", { id: "t", title: "x", priority: "low", xp: 5, createdAt: "2026-10-30", createdStamp: "garbage" });
+  assert.deepStrictEqual(client.inserts.map((i) => i.payload.created_at), ["2026-10-30T00:00:00", "2026-10-30T00:00:00"]);
+});
+
+test("editing never rewrites when something was created (no created_at in any update)", async () => {
   const client = makeClient({ tables: seedTables() });
   const { R } = boot({ configured: true, client });
-  const mk = (id) => ({ id, title: id, icon: "x", xp: 10, frequency: "daily", targetDays: [], createdAt: "2026-11-03" });
-  R.SupabaseData.insertHabit(client, "u1", mk("first"));
-  R.SupabaseData.insertHabit(client, "u1", mk("second"));
-  R.SupabaseData.insertTask(client, "u1", { id: "t-first", title: "a", priority: "low", xp: 5, createdAt: "2026-11-03" });
-  R.SupabaseData.insertTask(client, "u1", { id: "t-second", title: "b", priority: "low", xp: 5, createdAt: "2026-11-03" });
-  const at = (table) => client.inserts.filter((i) => i.table === table).map((i) => i.payload.created_at);
-  assert.strictEqual(at("habits").length, 2);
-  assert.notStrictEqual(at("habits")[0], at("habits")[1], "habits made one after the other share created_at = " + at("habits")[0]);
-  assert.notStrictEqual(at("tasks")[0], at("tasks")[1], "tasks made one after the other share created_at = " + at("tasks")[0]);
+  const all = { title: "n", description: "d", icon: "x", xp: 1, frequency: "daily", targetDays: [], time: null, priority: "low", date: null, type: "event", startTime: "09:00", endTime: null, notes: "", createdAt: "2026-11-03", createdStamp: "2026-11-03T10:00:00.000" };
+  await R.SupabaseData.updateHabit(client, "h1", all);
+  await R.SupabaseData.updateTask(client, "t1", all);
+  await R.SupabaseData.updateScheduleItem(client, "s1", all);
+  assert.strictEqual(client.updates.length, 3);
+  client.updates.forEach((u) => assert.ok(!("created_at" in u.payload) && !("createdStamp" in u.payload) && !("createdAt" in u.payload), u.table + " update carries a creation time: " + JSON.stringify(Object.keys(u.payload))));
+});
+
+test("achievements: unlocked_at stays a plain DATE (the column is a date; there is no timestamp to record without a migration)", async () => {
+  const client = makeClient({ tables: seedTables() });
+  const { R } = boot({ configured: true, client });
+  await R.SupabaseData.insertUnlockedAchievement(client, "u1", "first_habit", "2026-11-03", 50);
+  assert.strictEqual(client.upserts.length, 1, "the achievement was not written");
+  assert.strictEqual(client.upserts[0].payload.unlocked_at, "2026-11-03", "unlocked_at is a date column: a day, never a time");
+  assert.ok(!("created_at" in client.upserts[0].payload), "the table has no created_at column");
+  const t = seedTables(); t.unlocked_achievements = [{ user_id: "u1", achievement_id: "b", unlocked_at: "2026-11-03" }, { user_id: "u1", achievement_id: "a", unlocked_at: "2026-11-03" }, { user_id: "u1", achievement_id: "c", unlocked_at: "2026-11-01" }];
+  const c2 = makeClient({ tables: t });
+  const B = boot({ configured: true, client: c2 });
+  await B.R.SupabaseData.loadFullState(c2, "u1");
+  assert.deepStrictEqual(c2.orders.filter((o) => o.table === "unlocked_achievements").map((o) => o.cols.join(",")), ["unlocked_at,achievement_id"]);
 });
 
 /* ============================================================

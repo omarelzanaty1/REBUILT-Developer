@@ -176,6 +176,23 @@ REBUILT.Data = (function () {
     return formatLocalDate(d);
   }
 
+  /**
+   * The MOMENT something is created, as a local wall-clock timestamp with no zone: "2026-11-03T21:38:12.345".
+   * It is what habits and tasks are written to the server's created_at with (see supabaseData.js → createdAtFor).
+   *  - It is in the same «frame» as the day-only value the app wrote before ("2026-11-03T00:00:00" = local day, read back as if UTC),
+   *    so the first 10 characters are always the local day = todayISO(): the day the app reads back never moves, and old rows still sort correctly.
+   *  - Every call is later than the one before, even in the same millisecond (several rows made in a loop keep their order). A clock that
+   *    went back a little (summer-time change, at most 2 hours) does not repeat a stamp either; a clock set back further is believed.
+   */
+  let lastStampMs = -Infinity;
+  function stampNow() {
+    const d = new Date();
+    let ms = d.getTime() - d.getTimezoneOffset() * 60000; // the wall-clock reading, as if it were UTC
+    if (ms <= lastStampMs && lastStampMs - ms < 2 * 3600000) ms = lastStampMs + 1;
+    lastStampMs = ms;
+    return new Date(ms).toISOString().slice(0, 23);
+  }
+
   function freshSettings() {
     return { notifications: true, theme: "dark", reduceMotion: false };
   }
@@ -406,6 +423,7 @@ REBUILT.Data = (function () {
     buildEmptyState,
     buildDemoState,
     todayISO,
+    stampNow,
     formatLocalDate,
   };
 })();
