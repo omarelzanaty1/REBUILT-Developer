@@ -1186,16 +1186,69 @@ test("only the stable channel may use the production Supabase project", () => {
   });
 });
 
-test("development with no development project configured stays in local mode: no Supabase client, no request", () => {
-  ["omarelzanaty1.github.io/REBUILT-Developer/", "localhost/", "rebuilt-jet.vercel.app/"].forEach((a) => {
-    const i = a.indexOf("/");
-    const { SC, created } = loadClient(a.slice(0, i), a.slice(i));
-    assert.strictEqual(SC.PROFILES.development.url, "", "the development entry must be empty until the development project exists (" + a + ")");
+// REBUILT-Dev (ref zdqwhbtsjjlfkzdywsqt). Both values are PUBLIC by design (the key is a publishable key; Row Level Security protects the data).
+const DEV_URL = "https://zdqwhbtsjjlfkzdywsqt.supabase.co";
+const DEV_KEY = "sb_publishable_GkvMw_Xknu2NHME2YHEacw_NoIWkiky";
+const PROD_KEY = "sb_publishable_TLPC-KjlYAn34x-ry2qI0w_xoPwjIng";
+
+test("the Developer site — and ONLY it — talks to the development project (REBUILT-Dev), in strict mode, never to production", () => {
+  ["/REBUILT-Developer/", "/REBUILT-Developer", "/rebuilt-developer/index.html", "/REBUILT-Developer/#habits"].forEach((p) => {
+    const { SC, created } = loadClient("omarelzanaty1.github.io", p);
+    assert.strictEqual(SC.CONFIG.channel, "development", p);
+    assert.strictEqual(SC.CONFIG.url, DEV_URL, "the Developer site must use REBUILT-Dev (" + p + ")");
+    assert.strictEqual(SC.CONFIG.anonKey, DEV_KEY, "the Developer site must use REBUILT-Dev's publishable key (" + p + ")");
+    assert.strictEqual(SC.mustUseBackend(), true, "strict mode must be on at the Developer site (" + p + ")");
+    assert.ok(SC.init(), "a client must be created at the Developer site (" + p + ")");
+    assert.strictEqual(created.length, 1);
+    assert.strictEqual(created[0].url, DEV_URL);
+    assert.strictEqual(created[0].key, DEV_KEY);
+    assert.strictEqual(created[0].cfg.auth.flowType, "implicit");
+    assert.notStrictEqual(created[0].url, PROD_URL);
+    assert.notStrictEqual(created[0].key, PROD_KEY);
+  });
+});
+
+test("every OTHER non-stable address has NO backend at all: local mode, no client, no request — neither production nor development", () => {
+  [
+    ["localhost", "/"], ["127.0.0.1", "/"], ["", "/"], ["rebuilt-jet.vercel.app", "/"], ["rebuilt-git-main-rebuilt1.vercel.app", "/"],
+    ["omarelzanaty1.github.io", "/"], ["omarelzanaty1.github.io", "/rebuilt-developer-copy/"], ["omarelzanaty1.github.io", "/rebuilt0.4-copy/"],
+    ["example.com", "/REBUILT-Developer/"], ["example.com", "/rebuilt0.4/"], ["omarelzanaty1.github.io.evil.example", "/REBUILT-Developer/"], ["getrebuilt.online.evil.example", "/"],
+  ].forEach(([h, p]) => {
+    const { SC, created } = loadClient(h, p);
+    assert.strictEqual(SC.CONFIG.url, "", "no project URL may be handed to " + h + p + " (got " + SC.CONFIG.url + ")");
+    assert.strictEqual(SC.CONFIG.anonKey, "", "no key may be handed to " + h + p);
+    assert.strictEqual(SC.mustUseBackend(), false, h + p);
     assert.strictEqual(SC.init(), null);
     assert.strictEqual(SC.isAvailable(), false);
-    assert.strictEqual(created.length, 0, "createClient must not run on " + a);
-    assert.ok(/development project|configured for the/.test(SC.getError()), SC.getError());
+    assert.strictEqual(created.length, 0, "createClient must not run on " + h + p);
+    assert.ok(/development project|Developer site/.test(SC.getError()), SC.getError());
   });
+});
+
+test("stable is exactly what it was: the production project and its publishable key, strict mode off (pinned)", () => {
+  [["getrebuilt.online", "/"], ["www.getrebuilt.online", "/"], ["omarelzanaty1.github.io", "/rebuilt0.4/"]].forEach(([h, p]) => {
+    const { SC, created } = loadClient(h, p);
+    assert.strictEqual(SC.CONFIG.url, PROD_URL);
+    assert.strictEqual(SC.CONFIG.anonKey, PROD_KEY);
+    assert.strictEqual(SC.mustUseBackend(), false, "strict mode must stay off on stable (" + h + p + ")");
+    SC.init();
+    assert.strictEqual(created.length, 1);
+    assert.strictEqual(created[0].url, PROD_URL);
+  });
+});
+
+test("the development project's address and key appear in supabaseClient.js ONLY; the production ones only as the stable profile", () => {
+  const offenders = [];
+  files.forEach((f) => {
+    const s = fs.readFileSync(f, "utf8");
+    if (/zdqwhbtsjjlfkzdywsqt/.test(s) && rel(f) !== "js/supabaseClient.js") offenders.push(rel(f) + " (development project)");
+    if (/GkvMw_Xknu2NHME2YHEacw/.test(s) && rel(f) !== "js/supabaseClient.js") offenders.push(rel(f) + " (development key)");
+    if (/jvyhtpfedkypwdzyadba/.test(s) && rel(f) !== "js/supabaseClient.js") offenders.push(rel(f) + " (production project)");
+  });
+  assert.deepStrictEqual(offenders, []);
+  const src = fs.readFileSync(path.join(ROOT, "js/supabaseClient.js"), "utf8");
+  assert.strictEqual((src.match(/zdqwhbtsjjlfkzdywsqt/g) || []).length, 1, "the development project must be named exactly once");
+  assert.strictEqual((src.match(/jvyhtpfedkypwdzyadba/g) || []).length, 1, "the production project must be named exactly once (the stable profile)");
 });
 
 test("the development profile never holds the production project (url or key)", () => {
@@ -1204,7 +1257,7 @@ test("the development profile never holds the production project (url or key)", 
   assert.notStrictEqual(SC.PROFILES.development.anonKey, SC.PROFILES.stable.anonKey);
   assert.ok(!/service_role|sb_secret_/i.test(JSON.stringify(SC.PROFILES)));
   const dev = SC.PROFILES.development;
-  assert.ok((!dev.url && !dev.anonKey) || (/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(dev.url) && /^sb_publishable_/.test(dev.anonKey)), "a filled development profile needs a project URL and a publishable key");
+  assert.ok(/^https:\/\/[a-z0-9]{20}\.supabase\.co$/.test(dev.url) && /^sb_publishable_/.test(dev.anonKey), "the development profile needs a project URL and a publishable key");
 });
 
 test("the stable channel still creates the production client with the implicit flow (nothing changed for real users)", () => {
@@ -1226,8 +1279,13 @@ test("diagnose() reports the build, the channel and which backend the page uses"
   assert.strictEqual(d.host, "getrebuilt.online");
   const dev = loadClient("omarelzanaty1.github.io", "/REBUILT-Developer/", { marker: "0.4.6 dev-split 2026-10-29" }).SC.diagnose();
   assert.strictEqual(dev.channel, "development");
-  assert.strictEqual(dev.backend, "none yet (local mode)");
-  assert.ok(String(dev.reasonIfLocal).length > 0);
+  assert.strictEqual(dev.backend, "development project");
+  assert.strictEqual(dev.strict, true);
+  assert.strictEqual(dev.reasonIfLocal, null, "the Developer site is not in local mode any more");
+  const elsewhere = loadClient("localhost", "/").SC.diagnose();
+  assert.ok(/^none/.test(elsewhere.backend), "an address that is not the Developer site has no backend: " + elsewhere.backend);
+  assert.strictEqual(elsewhere.strict, false);
+  assert.ok(String(elsewhere.reasonIfLocal).length > 0);
 });
 
 test("development pages ask search engines to stay away; stable pages do not", () => {

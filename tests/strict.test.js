@@ -172,6 +172,7 @@ function boot(o) {
   // What the development profile holds in the repository changes over time (empty now, filled when the site is wired to REBUILT-Dev):
   // a test therefore sets it explicitly — filled with made-up values (configured) or blank — by patching the SOURCE it loads.
   const withProfile = (src) => {
+    if (o.shipped) return src;   // the file exactly as shipped: whatever the repository holds is what runs
     const url = o.configured ? DEV_URL : "";
     const key = o.configured ? DEV_KEY : "";
     const patched = src.replace(/(development:\s*\{\s*url:\s*)"[^"]*"/, "$1" + JSON.stringify(url)).replace(/(anonKey:\s*)"[^"]*",(\s*\/\/[^\n]*\n\s*\},\s*\};)/, "$1" + JSON.stringify(key) + ",$2");
@@ -226,10 +227,13 @@ test("strict mode: a configured development backend must be used (mustUseBackend
   assert.strictEqual(R.SupabaseClient.mustUseBackend(), true);
 });
 
-test("strict mode: the same on localhost and on an unknown address (they use the development profile too)", () => {
-  ["localhost", "example.org"].forEach((h) => {
-    const { R } = boot({ configured: true, location: { hostname: h, pathname: "/", origin: "https://" + h, search: "", hash: "" } });
-    assert.strictEqual(R.SupabaseClient.mustUseBackend && R.SupabaseClient.mustUseBackend(), true, h);
+test("strict mode: localhost, a Vercel address and an unknown address have NO backend even when the development profile is filled (only the Developer site uses it)", () => {
+  ["localhost", "127.0.0.1", "example.org", "rebuilt-dev.vercel.app"].forEach((h) => {
+    const { R, win } = boot({ configured: true, location: { hostname: h, pathname: "/", origin: "https://" + h, search: "", hash: "" } });
+    assert.strictEqual(typeof R.SupabaseClient.mustUseBackend, "function", "SupabaseClient.mustUseBackend() is missing");
+    assert.strictEqual(R.SupabaseClient.mustUseBackend(), false, h);
+    assert.strictEqual(R.SupabaseClient.CONFIG.url, "", h + ": the development project's URL must not be reachable from here");
+    assert.strictEqual(R.SupabaseClient.CONFIG.anonKey, "", h);
   });
 });
 
@@ -943,6 +947,70 @@ test("achievements: unlocked_at stays a plain DATE (the column is a date; there 
   const B = boot({ configured: true, client: c2 });
   await B.R.SupabaseData.loadFullState(c2, "u1");
   assert.deepStrictEqual(c2.orders.filter((o) => o.table === "unlocked_achievements").map((o) => o.cols.join(",")), ["unlocked_at,achievement_id"]);
+});
+
+/* ============================================================
+   9. The profile AS SHIPPED (no test patch): the Developer site is wired to REBUILT-Dev, in strict mode — and nothing else is
+   ============================================================ */
+
+const REAL_DEV_URL = "https://zdqwhbtsjjlfkzdywsqt.supabase.co";
+const DEV_SITE = { hostname: "omarelzanaty1.github.io", pathname: "/REBUILT-Developer/", origin: "https://omarelzanaty1.github.io", search: "", hash: "" };
+
+test("as shipped: the Developer site asks for REBUILT-Dev and strict mode is on", () => {
+  const spy = [];
+  const client = makeClient({ tables: seedTables() });
+  const { R, win } = boot({ shipped: true, client, location: DEV_SITE });
+  win.supabase = { createClient: (url, key) => { spy.push({ url, key }); return client; } };
+  assert.strictEqual(R.SupabaseClient.mustUseBackend(), true);
+  assert.ok(R.SupabaseClient.get(), "a client must be created");
+  assert.deepStrictEqual(plain(spy.map((x) => x.url)), [REAL_DEV_URL]);
+  assert.ok(/^sb_publishable_/.test(spy[0].key));
+  assert.strictEqual(R.Auth.mode(), "supabase");
+});
+
+test("as shipped: with the Developer server unreachable the app reports an error — it never falls back to the browser copy, and never touches it", async () => {
+  const client = makeClient({ tables: seedTables(), errors: { "select:profiles": { code: "", message: "TypeError: Failed to fetch" } } });
+  const { R, local } = boot({ shipped: true, client, location: DEV_SITE, cache: { rebuilt_state_v1: POISON } });
+  let reads = 0, writes = 0; const get = local.getItem, set = local.setItem;
+  local.getItem = (k) => { if (k === "rebuilt_state_v1") reads += 1; return get(k); };
+  local.setItem = (k, v) => { if (k === "rebuilt_state_v1") writes += 1; return set(k, v); };
+  const err = await rejects(R.Storage.load());
+  assert.strictEqual(err.name, "BackendError");
+  assert.strictEqual(err.kind, "network");
+  R.Storage.save({ habits: [{ title: "x" }] });
+  assert.strictEqual(reads, 0, "the browser copy must not be read");
+  assert.strictEqual(writes, 0, "the browser copy must not be written");
+  assert.strictEqual(local.getItem("rebuilt_state_v1"), POISON);
+});
+
+test("as shipped: with the library missing the Developer site is 'unavailable' (an error), never the device-only local sign-in", () => {
+  const { R } = boot({ shipped: true, client: null, location: DEV_SITE });
+  assert.strictEqual(R.Auth.mode(), "unavailable");
+  assert.strictEqual(R.Auth.isRealAuth(), false);
+});
+
+for (const [name, location] of [["localhost", { hostname: "localhost", pathname: "/", origin: "http://localhost:4173", search: "", hash: "" }],
+  ["a retired vercel address", { hostname: "rebuilt-jet.vercel.app", pathname: "/", origin: "https://rebuilt-jet.vercel.app", search: "", hash: "" }],
+  ["an unknown address", { hostname: "example.com", pathname: "/", origin: "https://example.com", search: "", hash: "" }]]) {
+  test("as shipped: " + name + " has no backend — local mode, no client, strict mode off", () => {
+    const spy = [];
+    const { R, win } = boot({ shipped: true, client: makeClient(), location });
+    win.supabase = { createClient: (url) => { spy.push(url); return makeClient(); } };
+    assert.strictEqual(R.SupabaseClient.mustUseBackend(), false);
+    assert.strictEqual(R.SupabaseClient.get(), null);
+    assert.deepStrictEqual(plain(spy), [], "no client may be created at " + name);
+    assert.strictEqual(R.Auth.mode(), "local");
+  });
+}
+
+test("as shipped: stable keeps the production project and keeps its old fallbacks (strict off)", () => {
+  const spy = [];
+  const client = makeClient({ tables: seedTables() });
+  const { R, win } = boot({ shipped: true, client, location: STABLE });
+  win.supabase = { createClient: (url) => { spy.push(url); return client; } };
+  assert.strictEqual(R.SupabaseClient.mustUseBackend(), false);
+  R.SupabaseClient.get();
+  assert.deepStrictEqual(plain(spy), ["https://jvyhtpfedkypwdzyadba.supabase.co"]);
 });
 
 /* ============================================================

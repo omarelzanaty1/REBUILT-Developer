@@ -11,10 +11,18 @@
 | الرابط | https://getrebuilt.online/ (وهو نفسه `https://omarelzanaty1.github.io/rebuilt0.4/`) | https://omarelzanaty1.github.io/REBUILT-Developer/ |
 | طريقة النشر | GitHub Pages «من الفرع `main`» + ملف `CNAME` (لم يتغيّر) | GitHub Pages «من GitHub Actions» (`.github/workflows/pages.yml`: test → build → deploy → verify) تلقائيًا عند كل push ناجح على `main` |
 | من يغيّره | `scripts/release.sh` فقط، بعد موافقتك الصريحة على commit بعينه | أي push على `main` في مستودع التطوير |
-| قاعدة البيانات | مشروع Supabase الحالي `jvyhtpfedkypwdzyadba` (المستخدمون الحقيقيون) | **لا مشروع حتى الآن** ← التطبيق يعمل محليًا في المتصفح بدون أي طلب إلى Supabase؛ مشروع تطوير منفصل مخطط له (القسم 8) |
+| قاعدة البيانات | مشروع Supabase الحالي `jvyhtpfedkypwdzyadba` (المستخدمون الحقيقيون) | مشروع منفصل **`REBUILT-Dev`** (`zdqwhbtsjjlfkzdywsqt`، eu-west-3) — **على موقع Developer وحده**، بالوضع الصارم (القسم 9). أي عنوان آخر غير رسمي = وضع محلي بلا أي طلب إلى Supabase |
 | للمستخدمين؟ | نعم | **لا** — للمبرمجين والاختبار فقط |
 
-**الفصل لا يعتمد على إعداد يمكن نسيانه:** `js/supabaseClient.js` يقرّر مشروع Supabase **من العنوان الذي حُمّلت منه الصفحة**. عنوان رسمي ⇐ مشروع الإنتاج؛ أي عنوان آخر (التطوير، `localhost`، أي عنوان غير معروف) ⇐ ملف التطوير. لذلك حتى لو نُسخ ملف التطوير بالغلط إلى مكان آخر، لا يلمس بيانات المستخدمين الحقيقيين.
+**الفصل لا يعتمد على إعداد يمكن نسيانه:** `js/supabaseClient.js` يقرّر مشروع Supabase **من العنوان الذي حُمّلت منه الصفحة**، وثلاث حالات فقط:
+
+| العنوان | ماذا يتصل به |
+|---|---|
+| عنوان رسمي (`getrebuilt.online` و`www.` و`omarelzanaty1.github.io/rebuilt0.4/`) | مشروع الإنتاج |
+| موقع Developer فقط: `https://omarelzanaty1.github.io/REBUILT-Developer/` | مشروع التطوير `REBUILT-Dev` (صارم) |
+| أي عنوان آخر: `localhost` و`127.0.0.1` وملف و`*.vercel.app` وأي عنوان غير معروف (حتى على `omarelzanaty1.github.io` نفسه) | **لا شيء** — وضع محلي في المتصفح، لا عميل Supabase ولا أي طلب إلى `*.supabase.co`، والوضع الصارم مغلق |
+
+لذلك حتى لو نُسخ ملف التطوير بالغلط إلى مكان آخر، لا يلمس بيانات المستخدمين الحقيقيين ولا يمسّ `REBUILT-Dev` إلا موقع Developer. (يثبّت ذلك `auth.test.js` و`strict.test.js` و`run_channels.js` و`run_strict.js`؛ وجُرِّب بإزالة القيد في نسخة تجريبية فسقطت 6 اختبارات وحدة و9 فحوص متصفح.)
 
 القنوات (`REBUILT.diagnose().channel` و `<html data-channel>`): `stable` · `development` · `local` · `unknown`.
 
@@ -35,7 +43,7 @@
 python3 -m http.server 4173      # ثم افتح http://localhost:4173/
 ```
 
-على `localhost` يعمل التطبيق في الوضع المحلي (حسابات وبيانات داخل المتصفح فقط) — لا يتصل بأي Supabase.
+على `localhost` يعمل التطبيق في الوضع المحلي (حسابات وبيانات داخل المتصفح فقط) — لا يتصل بأي Supabase، **ولا حتى بـ`REBUILT-Dev`**: الاتصال به لموقع Developer فقط (القسم 1). لتجربة المشروع الحقيقي افتح موقع Developer المنشور.
 
 ## 4. نشر نسخة التطوير (موقع المعاينة)
 
@@ -56,7 +64,7 @@ Developer (push إلى main) → GitHub Actions → موقع المعاينة �
 
 **إعداد يدوي لمرة واحدة** (لا يمكن عمله من ملف ولا من جلسة Claude، فالـ proxy يمنع مسار Pages API): في المستودع الخاص ← Settings ← Pages ← Build and deployment ← Source = **GitHub Actions**. قبل ذلك تفشل مرحلة `deploy` برسالة `Get Pages site failed … Not Found` (والمراحل قبلها تنجح)؛ بعد تفعيله اضغط على أي run ← **Re-run failed jobs** فيُنشر نفس الـ artifact بدون commit جديد.
 
-> **الخطة:** وفق توثيق GitHub، Pages للمستودعات **الخاصة** متاح في خطط GitHub Pro / Team / Enterprise فقط؛ الخطة المجانية للمستودعات العامة فقط ([GitHub Docs](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)). لا أستطيع قراءة خطة حسابك من الجلسة؛ تعرف النتيجة فور فتح Settings ← Pages (إن لم تتوفر الخطة تظهر رسالة بذلك بدل خيار Source). **وفي الخطط غير Enterprise Cloud يكون عنوان الموقع مفتوحًا لمن يعرفه حتى لو المستودع خاص** — لا أسرار فيه (مفتاح publishable فقط ولا مشروع تطوير بعد)، وفيه `noindex`، لكن `noindex` ليس تحكمًا في الوصول.
+> **الخطة:** وفق توثيق GitHub، Pages للمستودعات **الخاصة** متاح في خطط GitHub Pro / Team / Enterprise فقط؛ الخطة المجانية للمستودعات العامة فقط ([GitHub Docs](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)). لا أستطيع قراءة خطة حسابك من الجلسة؛ تعرف النتيجة فور فتح Settings ← Pages (إن لم تتوفر الخطة تظهر رسالة بذلك بدل خيار Source). **وفي الخطط غير Enterprise Cloud يكون عنوان الموقع مفتوحًا لمن يعرفه حتى لو المستودع خاص** — لا أسرار فيه (مفتاح publishable فقط لمشروع `REBUILT-Dev`)، وفيه `noindex`، لكن `noindex` ليس تحكمًا في الوصول.
 
 ## 5. الاختبارات
 
@@ -122,19 +130,36 @@ scripts/release.sh rollback <commit-sha-الجيد>
 
 مشروع واحد `jvyhtpfedkypwdzyadba` (`REBUILT`، eu-west-1، Free). محتواه: 10 جداول في `public` كلها RLS مفعّل و13 سياسة (لا سياسة لـ `anon`)، view واحد (`user_xp_totals`)، دالتان للتطبيق (`handle_new_user` و`set_updated_at`) ودالة المنصة `rls_auto_enable`، 4 triggers (3 لـ `updated_at` + `on_auth_user_created` على `auth.users`)، ملحقات `pgcrypto` و`uuid-ossp` و`pg_stat_statements` و`supabase_vault`. **لا** Storage buckets (0 ملف)، **لا** Edge Functions، **لا** أسرار في Vault، **لا** cron ولا Realtime. المستخدمون: 7 (4 مؤكدون). ملاحظات المستشار (لم تُغيَّر): Leaked password protection مغلق، وفهرس مفقود لمفتاح `habit_completions_habit_id_user_id_fkey`، وفهرس `tasks_user_date_idx` غير مستخدم. كل مخطط الإنتاج موجود في Git الآن: `supabase/` (ملفات SQL + الـ migrations المطبّقة) — وأثبتُّ أنها تعيد إنشاءه **مطابقًا** (بصمة 11/11 فئة).
 
-### الخطة لمشروع التطوير (لم تُنفَّذ — تحتاج موافقتك)
+### مشروع التطوير `REBUILT-Dev` — الحالة
 
-1. **(أنت)** في Supabase ← New project داخل المنظمة `rebuilt`: الاسم `REBUILT-Dev`، المنطقة eu-west-1، كلمة سر قاعدة البيانات تُحفظ في مدير كلمات المرور فقط (لا تُكتب في Git ولا في المحادثة). الخطة المجانية تسمح غالبًا بمشروعين نشطين؛ لوحة التحكم تؤكد.
-2. **(Claude بعد موافقتك)** تطبيق `supabase/migrations/20261022214309_*` ثم `20261022214525_*`؛ تشغيل `04_verify` (المتوقع 69 `OK`) و`05_isolation_test` و`schema_signature.sql` ومقارنة البصمة بالإنتاج. **لا** `06` (AI، متوقف) ولا `07` (لا مستخدمين لنقلهم).
-3. **(أنت)** إعدادات Auth للمشروع الجديد: Site URL و Redirect URLs = `https://omarelzanaty1.github.io/REBUILT-Developer/` ؛ Confirm email مفعّل؛ الحد الأدنى للباسورد 8؛ قالب Confirm signup: `…/REBUILT-Developer/?token_hash={{ .TokenHash }}&type=email` ؛ قالب Reset Password يعرض `{{ .Token }}`؛ Google (اختياري): إضافة `https://<ref-التطوير>.supabase.co/auth/v1/callback` إلى Authorized redirect URIs لنفس OAuth client (أو client منفصل) وتفعيل المزوّد بـ Client ID/Secret داخل لوحة Supabase فقط.
-4. **(Claude)** وضع **URL ومفتاح publishable** للمشروع الجديد في `PROFILES.development` داخل `js/supabaseClient.js` (الاختبار يرفض أي مفتاح غير publishable أو عنوان الإنتاج)، ثم commit وفحص.
+1. **(تم — أنت)** المشروع `REBUILT-Dev` (`zdqwhbtsjjlfkzdywsqt`، eu-west-3، Postgres 17). كلمة سر قاعدة البيانات في مدير كلمات المرور فقط (لا تُكتب في Git ولا في المحادثة).
+2. **(تم — Claude)** تطبيق `supabase/migrations/20261022214309_*` ثم `20261022214525_*`؛ تشغيل `04_verify` (المتوقع 69 `OK`) و`05_isolation_test` و`schema_signature.sql` ومقارنة البصمة بالإنتاج. **لا** `06` (AI، متوقف) ولا `07` (لا مستخدمين لنقلهم).
+3. **(لم يُنفَّذ — أنت، يدويًا في لوحة REBUILT-Dev؛ لا تُقرأ ولا تُكتب من هنا)** إعدادات Auth للمشروع الجديد: Site URL و Redirect URLs = `https://omarelzanaty1.github.io/REBUILT-Developer/` ؛ Confirm email مفعّل؛ الحد الأدنى للباسورد 8؛ قالب Confirm signup: `…/REBUILT-Developer/?token_hash={{ .TokenHash }}&type=email` ؛ قالب Reset Password يعرض `{{ .Token }}`؛ Google (اختياري): إضافة `https://<ref-التطوير>.supabase.co/auth/v1/callback` إلى Authorized redirect URIs لنفس OAuth client (أو client منفصل) وتفعيل المزوّد بـ Client ID/Secret داخل لوحة Supabase فقط.
+4. **(تم محليًا — Claude)** وُضع **URL ومفتاح publishable** فقط (`https://zdqwhbtsjjlfkzdywsqt.supabase.co` و`sb_publishable_…`) في `PROFILES.development` داخل `js/supabaseClient.js`؛ لا `service_role` ولا كلمة سر قاعدة بيانات في أي ملف (الاختبار يرفض أي مفتاح غير publishable أو أي عنوان/مفتاح إنتاج، ويثبت أن هذين المعرّفين لا يظهران إلا في هذا الملف). **لم يُرفع ولم يُنشر بعد.**
 5. البريد: بريد Supabase الافتراضي يرسل لأعضاء الفريق فقط وبحد صغير — يكفي للتطوير؛ استخدم عناوين الفريق/الحسابات التجريبية.
 
 **لا يُنقل:** مستخدمون، جلسات، tokens، كلمات مرور، صفوف بيانات. **المخاطر:** المشروع المجاني يتوقف بعد نحو أسبوع بلا نشاط (وهذا مقبول للتطوير)؛ إنشاء المشروع ليس تدميريًا ولا يمس الإنتاج؛ الخطأ الوحيد المحتمل هو لصق مفتاح الإنتاج في ملف التطوير — والاختبارات تمنعه.
 
+### إعدادات Auth اليدوية لـ`REBUILT-Dev` (من لوحة Supabase — لا تُقرأ ولا تُكتب من الجلسة)
+
+لوحة المشروع ← Authentication. بدونها يعمل الاتصال والقراءة والكتابة، لكن **تأكيد البريد** وإرجاع المستخدم للموقع الصحيح لن يعملا (يرجعه Supabase إلى الـSite URL الافتراضي `http://localhost:3000`).
+
+| أين | القيمة |
+|---|---|
+| URL Configuration ← **Site URL** | `https://omarelzanaty1.github.io/REBUILT-Developer/` |
+| URL Configuration ← **Redirect URLs** | `https://omarelzanaty1.github.io/REBUILT-Developer/` (بالشرطة المائلة في الآخر: هذا بالضبط ما يرسله التطبيق كـ`emailRedirectTo`/`redirectTo`) |
+| Sign In / Providers ← **Email** | مفعَّل، **Confirm email** مفعَّل، الحد الأدنى للباسورد 8 |
+| Email Templates ← **Confirm signup** | الرابط: `https://omarelzanaty1.github.io/REBUILT-Developer/?token_hash={{ .TokenHash }}&type=email` (التطبيق يتحقق منه بـ`verifyOtp`) |
+| Email Templates ← **Reset Password** | يعرض الكود `{{ .Token }}` ولا يحوي `{{ .ConfirmationURL }}` (الاستعادة بكود رقمي قصير، انظر `WEB-DEPLOYMENT.md`) |
+| البريد (SMTP / حدود الإرسال) | البريد الافتراضي يرسل لأعضاء الفريق فقط وبحد صغير في الساعة: استخدم عنوانك أو عناوين الفريق (`@example.com` لا يستلم شيئًا). لا تحتاج SMTP مخصصًا للتطوير |
+| Providers ← **Google** | اختياري ومغلق افتراضيًا: لو أردته أضف `https://zdqwhbtsjjlfkzdywsqt.supabase.co/auth/v1/callback` إلى Authorized redirect URIs في Google Cloud، وضع Client ID/Secret داخل لوحة Supabase فقط. بدونه يفحص التطبيق قبل التحويل ويعرض رسالة بدل صفحة خطأ (انظر `WEB-DEPLOYMENT.md`) |
+| Attack Protection ← Leaked password protection | اختياري ولا يؤثر على الاتصال (في الإنتاج مغلق حاليًا — انظر ملاحظات المستشار أعلاه) |
+
+ملاحظة: مشروع التطوير **لا حسابات فيه** (`auth.users` = 0 وكل جداول التطبيق فارغة وقت الفحص)، وحساباته منفصلة تمامًا عن الإنتاج: من سجّل في `getrebuilt.online` يحتاج حسابًا جديدًا هنا، ولا يُنقل أحد.
+
 ### الوضع الصارم (Strict mode) — المرحلة 3
 
-**القاعدة:** backend مُعدّ وفشل = خطأ يراه المستخدم، لا تخزين محلي صامت. يُشتق في `js/supabaseClient.js` (`mustUseBackend()`) من القناة والـprofile فقط: يعمل في `development` و`local` و`unknown` **حين يكون `PROFILES.development` مملوءًا**، ولا يعمل أبدًا في `stable`، ولا يعمل ما دام الـprofile فارغًا (الوضع المحلي المقصود، كما هو الآن). `REBUILT.diagnose()` يعرض `strict`.
+**القاعدة:** backend مُعدّ وفشل = خطأ يراه المستخدم، لا تخزين محلي صامت. يُشتق في `js/supabaseClient.js` (`mustUseBackend()`) من العنوان فقط: يعمل **على موقع Developer** (الوحيد الذي له backend غير الإنتاج)، ولا يعمل أبدًا في `stable`، ولا في أي عنوان بلا backend (`localhost` وغيره = الوضع المحلي المقصود). `REBUILT.diagnose()` يعرض `strict`.
 
 | الحالة (strict) | السلوك |
 |---|---|
@@ -155,12 +180,13 @@ scripts/release.sh rollback <commit-sha-الجيد>
   - **صفوف قديمة (كُتبت «يوم + `T00:00:00`»):** لا Migration لها (ممنوعة)؛ تبقى متعادلة داخل يومها وتُرتَّب بالـ`id` كما كانت، وتأتي قبل صفوف اليوم نفسه الجديدة. وأي كائن بلا `createdStamp` (نسخة محلية قديمة، ملف مستورد، بيانات تجريبية) يُكتب كما في السابق: اليوم فقط.
   - **الإطار الزمني:** قيمة `created_at` للعادات والمهام هي ساعة الجهاز المحلية مخزَّنة كأنها UTC (نفس إطار القيمة القديمة `T00:00:00`، ولهذا لا يتحرك اليوم المقروء `createdAt` أبدًا) — فهي ليست لحظة UTC حقيقية؛ لا تُقارَن بساعة السيرفر. تغيير المنطقة الزمنية للجهاز أثناء اليوم نفسه قد يعكس ترتيب عنصرين.
   - **`schedule_items` و`habit_completions`:** لم تكن تاريخًا فقط أصلًا؛ ساعة السيرفر `now()` تختمها ولا يُرسَل شيء عند الإنشاء (عند «التراجع» يُعاد إرسال القيمة الأصلية للجدول). `unlocked_achievements` عمودها `unlocked_at` تاريخ فقط ولا `created_at` له، فلا وقت يُسجَّل بدون Migration.
-  - ما لم يُجرَّب على Supabase حقيقي: شكل `created_at` الذي يرجعه PostgREST فعلًا (الاختبارات تحاكيه بـ`+00:00`)؛ إن لم يطابق تعبير `STAMP` في `supabaseData.js` يرجع «التراجع» للسلوك القديم (اليوم فقط) دون خطأ.
+  - فُحص على `REBUILT-Dev` (SQL): أعمدة `created_at` كلها `timestamptz` بافتراضي `now()`، و`to_json` لقيمة بلا منطقة زمنية يُرجِع `2026-11-05T10:20:30.123456+00:00` (المنطقة الافتراضية للجلسة UTC، فتُقرأ القيمة بلا منطقة كـUTC تمامًا كما يفترض `createdAtFor`) — وهو الشكل الذي تحاكيه الاختبارات. **لم يُجرَّب** مسار PostgREST الحقيقي من التطبيق (لا اتصال من بيئة العمل إلى `*.supabase.co`)؛ لو اختلف الشكل يرجع «التراجع» للسلوك القديم (اليوم فقط) دون خطأ.
 - **UPDATE/DELETE بصفر صفوف:** RLS قد يجعل تعديلًا يطابق صفر صف يرجع بلا خطأ؛ لا يُكتشف (يلزم `.select()` بعد كل تعديل). غير منفَّذ.
 - **supabase-js غير مثبَّت:** `index.html` ما زال يحمّل `@supabase/supabase-js@2` (عائم) بلا `integrity`. السكربت `scripts/pin-supabase-js.sh <x.y.z>` يثبّته ويحسب الـhash من الحزمة والـCDN معًا، لكنه يحتاج إنترنت ولم يمكن تشغيله حيث نُفِّذ العمل. اختبار `strict.test.js` يسجّله `todo()` ويصير ناجحًا حين يُنفَّذ؛ وبعد التثبيت يجب أن تقدّم اختبارات المتصفح `index.html` بلا `integrity` (المكتبة فيها مزيّفة).
 - **سقف 1000 صف الحقيقي:** مُحاكى فقط (`maxRows` في الاختبارات)؛ لم يُقرأ سقف REBUILT-Dev الفعلي ولم يُجرَّب `Content-Range` الحقيقي.
 - **Stable:** سلوكه مثبَّت باختبارات (فشل الكتابة صامت، الرجوع إلى النسخة المحلية)؛ تفعيل الصارم عليه قرار ترقية مستقل بموافقتك.
-- **ملء `PROFILES.development`:** غير منفَّذ بقصد؛ هو آخر خطوة، وبعده فقط يتصل الـPreview وlocalhost بـREBUILT-Dev.
+- **ربط `PROFILES.development` (تم محليًا، لم يُرفع):** بعد الرفع يتصل **موقع Developer وحده** بـREBUILT-Dev. جلسة اختبار حقيقية (حساب جديد، دخول/خروج، حفظ عادة ومهمة، إعادة تحميل) **لم تُجرَّ بعد** — تتم يدويًا على الموقع المنشور بعد ضبط Auth (أدناه)؛ اختبارات المتصفح محاكاة (انظر «حدود هذه الاختبارات»).
+- **نسخة قديمة على الجهاز:** المفتاح `rebuilt_state_v1` مشترك بين كل مواقع `omarelzanaty1.github.io` على نفس المتصفح (المصدر نفسه)، فقد تحمل صفحة Developer بيانات قديمة من موقع آخر. الوضع الصارم لا يقرؤها ولا يكتب عليها، وتُمسح عند تسجيل الخروج (`Storage.clear()`).
 
 ## 10. إيقاف Vercel (لم يُنفَّذ — يحتاج صلاحياتك)
 

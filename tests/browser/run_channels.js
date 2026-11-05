@@ -2,30 +2,33 @@
 // asked which channel and backend it chose. The Supabase test double stands in for supabase-js, so NOTHING
 // reaches a real service; what is proved is WHICH project the page asked for (or that it asked for none).
 //   stable addresses       → the production project, exactly as before
-//   development / local    → no project at all (local mode), no request to any *.supabase.co host, noindex on development
+//   the Developer site     → the DEVELOPMENT project (REBUILT-Dev) in strict mode - and nothing else, never production
+//   every other address    → no project at all (local mode), no request to any *.supabase.co host, noindex on development
 const { launch, ROOT, OUT, TESTS } = require('./_env');
 const fs = require('fs'), path = require('path');
 const FAKE = fs.readFileSync(TESTS + '/fake-supabase.js', 'utf8');
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.json':'application/json', '.webmanifest':'application/manifest+json' };
 const PROD = 'https://jvyhtpfedkypwdzyadba.supabase.co';
+const DEV = 'https://zdqwhbtsjjlfkzdywsqt.supabase.co';
 const results = [];
 const log = (name, ok, detail) => { results.push({ name, ok }); console.log((ok ? 'PASS ' : 'FAIL ') + name + (detail ? ' — ' + detail : '')); };
 
-// [address, expected channel, uses production?]
+// [address, expected channel, which backend it may ask for: 'prod' | 'dev' | 'none']
 const ADDRESSES = [
-  ['https://getrebuilt.online/', 'stable', true],
-  ['https://www.getrebuilt.online/', 'stable', true],
-  ['https://omarelzanaty1.github.io/rebuilt0.4/', 'stable', true],
-  ['https://omarelzanaty1.github.io/REBUILT-Developer/', 'development', false],
-  ['https://rebuilt-jet.vercel.app/', 'development', false],
-  ['http://localhost:4173/', 'local', false],
-  ['https://example.org/rebuilt0.4/', 'unknown', false],
-  ['https://omarelzanaty1.github.io/some-other-site/', 'unknown', false],
+  ['https://getrebuilt.online/', 'stable', 'prod'],
+  ['https://www.getrebuilt.online/', 'stable', 'prod'],
+  ['https://omarelzanaty1.github.io/rebuilt0.4/', 'stable', 'prod'],
+  ['https://omarelzanaty1.github.io/REBUILT-Developer/', 'development', 'dev'],
+  ['https://rebuilt-jet.vercel.app/', 'development', 'none'],
+  ['http://localhost:4173/', 'local', 'none'],
+  ['https://example.org/rebuilt0.4/', 'unknown', 'none'],
+  ['https://omarelzanaty1.github.io/some-other-site/', 'unknown', 'none'],
 ];
 
 (async () => {
   const browser = await launch();
-  for (const [address, channel, prod] of ADDRESSES) {
+  for (const [address, channel, backend] of ADDRESSES) {
+    const prod = backend === 'prod';
     const u0 = new URL(address); const BASE = u0.pathname;
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'ar-EG', timezoneId: 'Africa/Cairo' });
     const page = await ctx.newPage();
@@ -63,6 +66,12 @@ const ADDRESSES = [
       log(`${tag} asks for the PRODUCTION project`, info.created.length >= 1 && info.created.every(c => c.url === PROD), JSON.stringify(info.created.map(c => c.url)));
       log(`${tag} no robots noindex on stable`, info.robots === false);
       log(`${tag} reports backend = production project`, info.diag.backend === 'production project', info.diag.backend);
+    } else if (backend === 'dev') {
+      log(`${tag} asks for the DEVELOPMENT project (REBUILT-Dev) and nothing else`, info.created.length >= 1 && info.created.every(c => c.url === DEV), JSON.stringify(info.created.map(c => c.url)));
+      log(`${tag} never asks for the production project`, info.created.every(c => c.url !== PROD));
+      log(`${tag} strict mode is on, and it reports backend = development project`, info.diag.strict === true && info.diag.backend === 'development project', 'strict=' + info.diag.strict + ' backend=' + info.diag.backend);
+      log(`${tag} sends no request to any real *.supabase.co host (the test double stands in)`, supabaseHits.length === 0, supabaseHits.join(' '));
+      log(`${tag} development pages carry robots noindex`, info.robots === true, 'robots=' + info.robots);
     } else {
       log(`${tag} never asks for the production project (no client created at all)`, info.created.length === 0, JSON.stringify(info.created));
       log(`${tag} sends no request to any *.supabase.co host`, supabaseHits.length === 0, supabaseHits.join(' '));

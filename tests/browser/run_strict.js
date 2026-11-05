@@ -68,7 +68,8 @@ const POISON = JSON.stringify({
     await ctx.addInitScript((seed) => {
       try {
         if (seed.db && !localStorage.getItem('__fakesb')) localStorage.setItem('__fakesb', JSON.stringify(seed.db));
-        if (seed.cache && localStorage.getItem('rebuilt_state_v1') === null) localStorage.setItem('rebuilt_state_v1', seed.cache);
+        // the device copy is planted ONCE per browser context: a sign-out that clears it must not see it planted again by the next page load
+        if (seed.cache && localStorage.getItem('__cacheSeeded') === null) { localStorage.setItem('__cacheSeeded', '1'); if (localStorage.getItem('rebuilt_state_v1') === null) localStorage.setItem('rebuilt_state_v1', seed.cache); }
         if (seed.cfg && sessionStorage.getItem('__sbcfg') === null) sessionStorage.setItem('__sbcfg', JSON.stringify(seed.cfg));
       } catch (e) {}
     }, { db: o.db || null, cache: o.cache || null, cfg: o.cfg || null });
@@ -83,7 +84,7 @@ const POISON = JSON.stringify({
         const f = path.join(ROOT, p);
         if (!f.startsWith(ROOT) || !fs.existsSync(f)) return route.fulfill({ status: 404, body: 'nf' });
         let body = fs.readFileSync(f);
-        if (p === '/js/supabaseClient.js' && base === DEV_BASE) body = Buffer.from(profileClient(body.toString('utf8'), !!o.filled));
+        if (p === '/js/supabaseClient.js' && base === DEV_BASE && !o.shipped) body = Buffer.from(profileClient(body.toString('utf8'), !!o.filled));   // shipped: the file exactly as the repository holds it
         return route.fulfill({ status: 200, contentType: MIME[path.extname(f)] || 'application/octet-stream', body });
       }
       if (/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js/.test(u.href)) return o.blockLib ? route.abort() : route.fulfill({ status: 200, contentType: 'application/javascript', body: FAKE });
@@ -359,6 +360,91 @@ const POISON = JSON.stringify({
       await reload(page);
       const after = await loaded(page);
       log(T('the new ones come after the old ones of the same day, in the order they were made'), after.habits.join() === 'OLD-A,OLD-C,OLD-F,NEW-1,NEW-2,NEW-3', after.habits.join());
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+  }
+
+  /* ---------- 11. AS SHIPPED: the Developer site, with the repository's own profile (nothing patched by the harness) ---------- */
+  // The server is the in-browser test double, so this proves what the PAGE does with REBUILT-Dev's address and with failures — not what the real service answers.
+  {
+    const REAL_DEV = 'https://zdqwhbtsjjlfkzdywsqt.supabase.co';
+    const T = (n) => 'dev AS SHIPPED (simulated server): ' + n;
+    const signedOutDb = () => { const d = serverDb(); d.sessionUserId = null; return d; };
+    const titles = (page) => page.$$eval('.row--habit .row__title', (els) => els.map((e) => e.textContent.trim()));
+
+    // a. a signed-in person, healthy server
+    {
+      const { ctx, page, errors, realHits } = await open({ shipped: true, db: serverDb(), cache: POISON });
+      await page.goto(DEV_BASE + '/#habits', { waitUntil: 'load' });
+      await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page);
+      const info = await page.evaluate(() => ({ diag: REBUILT.SupabaseClient.diagnose(), created: (window.__sb && window.__sb.created) || [], tag: document.documentElement.getAttribute('data-backend') }));
+      log(T('strict mode is on and the page asks for REBUILT-Dev (and only it)'), info.diag.strict === true && info.created.length >= 1 && info.created.every((c) => c.url === REAL_DEV), JSON.stringify(info.created.map((c) => c.url)) + ' strict=' + info.diag.strict);
+      log(T('the corner tag says it is the development backend'), info.tag === 'dev', String(info.tag));
+      const text = await bodyText(page);
+      log(T("the server's data is shown, the stale device copy is not"), /SERVER-HABIT/.test(text) && !/STALE-LOCAL-COPY|STALE-NAME/.test(text));
+      // a habit and a task are saved, then come back after a reload
+      await page.evaluate(() => { REBUILT.Actions.addHabit({ title: 'SHIPPED-HABIT', icon: 'flame', xp: 20, frequency: 'daily', targetDays: [], time: null }); REBUILT.Actions.addTask({ title: 'SHIPPED-TASK', priority: 'low', xp: 10, date: null, time: null }); });
+      await settle(page, 1500);
+      const stored = await page.evaluate(() => ({ h: window.__sb.db.tables.habits.map((x) => x.title), t: window.__sb.db.tables.tasks.map((x) => x.title) }));
+      log(T('a habit and a task reach the server'), stored.h.indexOf('SHIPPED-HABIT') !== -1 && stored.t.indexOf('SHIPPED-TASK') !== -1, JSON.stringify(stored));
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForSelector('.row--habit', { timeout: 10000 }).catch(() => {}); await settle(page, 800);
+      const back = await page.evaluate(() => ({ h: REBUILT.App.state.habits.map((x) => x.title), t: REBUILT.App.state.tasks.map((x) => x.title) }));
+      log(T('after a reload both come back from the server, in the order they were made'), back.h.join() === 'SERVER-HABIT,SHIPPED-HABIT' && back.t.join() === 'SERVER-TASK,SHIPPED-TASK', JSON.stringify(back));
+      log(T('the device copy was never read or rewritten'), (await cache(page)) === POISON);
+      log(T('no error screen, no uncaught error, no request to a real *.supabase.co host'), (await errorScreen(page)) === null && errors.length === 0 && realHits.length === 0, errors.concat(realHits).join(' | '));
+      await ctx.close();
+    }
+
+    // b. sign in and sign out through the screens
+    {
+      const { ctx, page, errors } = await open({ shipped: true, db: signedOutDb(), cache: POISON });
+      await page.goto(DEV_BASE + '/', { waitUntil: 'load' });
+      await page.waitForSelector('.landing', { timeout: 10000 }).catch(() => {}); await settle(page, 300);
+      log(T('signed out: the landing page offers sign-in, with NO «local mode» notice'), (await page.$('[data-go="signin"]')) !== null && (await page.$('.landing__mode')) === null);
+      await page.click('[data-go="signin"]'); await page.waitForSelector('#auth-form');
+      await page.fill('#f-email', EMAIL); await page.fill('#f-password', 'secret123'); await page.click('#auth-submit');
+      await page.waitForSelector('#app:not([hidden])', { timeout: 10000 }).catch(() => {}); await settle(page, 900);
+      log(T('sign-in works and opens the app with the account from the server'), (await appShown(page)) === true && /SERVER-HABIT/.test(await bodyText(page).catch(() => '')) || (await page.evaluate(() => REBUILT.App.state && REBUILT.App.state.habits.map((h) => h.title).join())) === 'SERVER-HABIT');
+      await page.goto(DEV_BASE + '/#settings', { waitUntil: 'load' }); await page.waitForSelector('#sign-out-btn', { timeout: 8000 }).catch(() => {});
+      await page.click('#sign-out-btn'); await page.waitForSelector('.landing', { timeout: 10000 }).catch(() => {}); await settle(page, 400);
+      const afterOut = { landing: (await page.$('.landing')) !== null, cache: await cache(page), url: page.url() };
+      log(T('sign-out returns to the landing page and leaves no data of the account behind in the browser'), afterOut.landing && afterOut.cache === null, JSON.stringify(afterOut).slice(0, 300));
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+
+    // c. creating a new account: the request is sent to REBUILT-Dev with THIS site as the e-mail link's target
+    {
+      const { ctx, page, errors } = await open({ shipped: true, db: signedOutDb() });
+      await page.goto(DEV_BASE + '/', { waitUntil: 'load' });
+      await page.waitForSelector('.landing', { timeout: 10000 }).catch(() => {}); await settle(page, 300);
+      await page.click('[data-go="signup"]'); await page.waitForSelector('#auth-form');
+      await page.fill('#f-name', 'New Dev Tester'); await page.fill('#f-email', 'new.dev.tester@example.com');
+      await page.fill('#f-password', 'secret123'); await page.fill('#f-confirmPassword', 'secret123');
+      await page.click('#auth-submit'); await page.waitForSelector('.gate__state', { timeout: 8000 }).catch(() => {});
+      const calls = await page.evaluate(() => window.__sb.authCalls.filter((c) => c.fn === 'signUp'));
+      const redirect = calls[0] && calls[0].emailRedirectTo;   // the double records {fn, email, emailRedirectTo}
+      log(T('sign-up reaches the server once and asks for the confirmation e-mail'), calls.length === 1 && (await page.$('.gate__state')) !== null, 'signUp calls=' + calls.length);
+      log(T("the e-mail link will point back to THIS site (the address REBUILT-Dev's Auth must allow)"), redirect === DEV_BASE + '/', String(redirect));
+      log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
+      await ctx.close();
+    }
+
+    // d. the server is unreachable: an error screen — never the device copy
+    {
+      const { ctx, page, errors } = await open({ shipped: true, db: serverDb(), cache: POISON, cfg: { down: true } });
+      await page.goto(DEV_BASE + '/#habits', { waitUntil: 'load' });
+      await page.waitForSelector('#backend-error', { timeout: 10000 }).catch(() => {}); await settle(page, 300);
+      const es = await errorScreen(page);
+      log(T('server down: a blocking error screen with «try again», the app hidden'), !!es && es.visible && es.kind === 'network' && es.retry && (await appShown(page)) === false, JSON.stringify(es && { kind: es.kind, retry: es.retry }));
+      const text = await bodyText(page);
+      log(T('server down: the stale device copy is not shown instead, and is left untouched'), !/STALE-LOCAL-COPY|STALE-NAME/.test(text) && (await cache(page)) === POISON);
+      await setCfg(page, {});
+      if (await page.$('[data-be="retry"]')) await page.click('[data-be="retry"]', { timeout: 3000 }).catch(() => {});
+      await page.waitForSelector('.row--habit', { timeout: 6000 }).catch(() => {}); await settle(page);
+      log(T('server back: «try again» shows the real data'), /SERVER-HABIT/.test(await bodyText(page)) && (await errorScreen(page)) === null);
       log(T('no uncaught error'), errors.length === 0, errors.join(' | '));
       await ctx.close();
     }

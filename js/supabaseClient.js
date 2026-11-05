@@ -15,14 +15,15 @@ window.REBUILT = window.REBUILT || {};
 
 REBUILT.SupabaseClient = (function () {
   /*
-   * TWO ENVIRONMENTS, TWO BACKENDS.  Which Supabase project the page talks to is decided here, from the
-   * address the page was loaded from (see channelFor):
+   * TWO ENVIRONMENTS, TWO BACKENDS — and no third address that can reach either.  Which Supabase project the page talks to is decided here,
+   * from the address the page was loaded from (see channelFor):
    *   - "stable" (getrebuilt.online) is the only channel that uses the production project (real users).
-   *   - every other address — development, localhost, anything unrecognised — uses the DEVELOPMENT
-   *     project, so a development test can never read or write the real users' data by accident.
-   * While the development project does not exist yet its entry below is empty, and the app then runs in
-   * its browser-only local mode (no request leaves the page for Supabase) — see docs/ENVIRONMENTS.md.
-   * Only PUBLISHABLE keys go here (they are public by design, protected by Row Level Security).
+   *   - the Developer site (https://omarelzanaty1.github.io/REBUILT-Developer/) is the only address that uses the DEVELOPMENT project
+   *     (REBUILT-Dev), always in strict mode (see mustUseBackend): a failing server is an error the person sees, never a silent local copy.
+   *   - every other address — a file, localhost, a retired Vercel address, anything unrecognised — has NO backend: the browser-only local mode,
+   *     no request leaves the page for Supabase. A development test therefore can never read or write the real users' data by accident,
+   *     and nothing but the Developer site can touch REBUILT-Dev.
+   * Only PUBLISHABLE keys go here (they are public by design, protected by Row Level Security). See docs/ENVIRONMENTS.md.
    */
   const PROFILES = {
     stable: {
@@ -30,16 +31,20 @@ REBUILT.SupabaseClient = (function () {
       anonKey: "sb_publishable_TLPC-KjlYAn34x-ry2qI0w_xoPwjIng",
     },
     development: {
-      url: "", // <- the development project's URL, once it has been created (never the production one)
-      anonKey: "", // <- its publishable key
+      url: "https://zdqwhbtsjjlfkzdywsqt.supabase.co", // REBUILT-Dev (never the production project)
+      anonKey: "sb_publishable_GkvMw_Xknu2NHME2YHEacw_NoIWkiky", // its publishable key (public by design; protected by RLS)
     },
   };
 
   const loc = (typeof window !== "undefined" && window.location) || {};
   const CHANNEL = channelFor(loc.hostname, loc.pathname);
   const PROFILE = CHANNEL === "stable" ? "stable" : "development";
+  // The development project is reachable from ONE address: the Developer site (channelFor says "development" for that path of github.io;
+  // the retired Vercel addresses are "development" too, but are not this site). Anything else non-stable gets an empty config = local mode.
+  const ON_DEVELOPER_SITE = CHANNEL === "development" && String(loc.hostname || "").toLowerCase() === "omarelzanaty1.github.io";
+  const BACKEND = PROFILE === "stable" ? PROFILES.stable : ON_DEVELOPER_SITE ? PROFILES.development : { url: "", anonKey: "" };
   // CONFIG stays {url, anonKey} for its other readers (auth.js); channel/profile are extra, read-only facts.
-  const CONFIG = Object.assign({ channel: CHANNEL, profile: PROFILE }, PROFILES[PROFILE]);
+  const CONFIG = Object.assign({ channel: CHANNEL, profile: PROFILE }, BACKEND);
 
   let client = null;
   let lastError = null;
@@ -56,7 +61,7 @@ REBUILT.SupabaseClient = (function () {
     }
     if (!CONFIG.url || !CONFIG.anonKey) {
       lastError = PROFILE === "development"
-        ? "no Supabase project is configured for the " + CHANNEL + " channel yet (by design it never uses the production project) - running in local mode"
+        ? "this address (" + CHANNEL + ") has no backend: only the Developer site uses the development project, and only the official site uses production - running in local mode"
         : "Supabase config missing (url/anonKey empty)";
       return null;
     }
@@ -87,11 +92,11 @@ REBUILT.SupabaseClient = (function () {
 
   /**
    * STRICT MODE — «a configured backend that fails is never hidden behind the local copy».
-   * On when this page is NOT the stable channel AND the development project is filled in above:
+   * On when this page is the Developer site (the only non-stable address that has a backend: see ON_DEVELOPER_SITE above):
    * from then on every failure to read or write the server is an error the person sees, the browser copy
    * (rebuilt_state_v1) is neither read nor written, and a missing library never turns into a device-only sign-in.
-   * Off on the stable channel (its behaviour is unchanged until the owner approves promoting this), and off while the
-   * development profile is empty (the deliberate local mode, used by the local-mode tests).
+   * Off on the stable channel (its behaviour is unchanged until the owner approves promoting this), and off at every address that has no
+   * backend (the deliberate local mode, used by the local-mode tests).
    * Derived from the address and the profile only — never from a setting that could be copied between repositories.
    */
   function mustUseBackend() {
@@ -224,7 +229,7 @@ REBUILT.SupabaseClient = (function () {
     return {
       build: buildMarker(),
       channel: CHANNEL,
-      backend: PROFILE === "stable" ? "production project" : CONFIG.url ? "development project" : "none yet (local mode)",
+      backend: PROFILE === "stable" ? "production project" : CONFIG.url ? "development project" : "none (this address has no backend: local mode)",
       host: loc.host,
       strict,
       // «unavailable», not «local»: a configured backend that cannot be used is an error state, never the device-only mode.
