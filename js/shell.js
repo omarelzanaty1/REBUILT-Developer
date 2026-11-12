@@ -12,22 +12,22 @@ REBUILT.Shell = (function () {
 
   /** id → label/icon. `group` decides sidebar sections; `tab` marks the phone bottom-bar items. */
   const NAV = [
-    { id: "dashboard", label: "الرئيسية", icon: "home", group: "main", tab: true },
-    { id: "planner", label: "يومي", icon: "calendar", group: "main" },
-    { id: "habits", label: "العادات", icon: "flame", group: "main", tab: true },
-    { id: "tasks", label: "المهام", icon: "tasks", group: "main", tab: true },
-    { id: "goals", label: "الأهداف", icon: "target", group: "main", tab: true },
-    { id: "analytics", label: "الإحصائيات", icon: "chart", group: "insights" },
-    { id: "achievements", label: "الإنجازات", icon: "trophy", group: "insights" },
-    { id: "ai", label: "REBUILT AI", icon: "sparkles", group: "ai", badge: "قريبًا" },
-    { id: "profile", label: "الملف الشخصي", icon: "user", group: "account", sheetOnly: true },
-    { id: "settings", label: "الإعدادات", icon: "sliders", group: "account" },
+    { id: "dashboard", get label() { return REBUILT.t("common.home"); }, icon: "home", group: "main", tab: true },
+    { id: "planner", get label() { return REBUILT.t("common.my_day"); }, icon: "calendar", group: "main" },
+    { id: "habits", get label() { return REBUILT.t("common.habits"); }, icon: "flame", group: "main", tab: true },
+    { id: "tasks", get label() { return REBUILT.t("common.tasks"); }, icon: "tasks", group: "main", tab: true },
+    { id: "goals", get label() { return REBUILT.t("common.goals"); }, icon: "target", group: "main", tab: true },
+    { id: "analytics", get label() { return REBUILT.t("common.analytics"); }, icon: "chart", group: "insights" },
+    { id: "achievements", get label() { return REBUILT.t("common.achievements"); }, icon: "trophy", group: "insights" },
+    { id: "ai", label: "REBUILT AI", icon: "sparkles", group: "ai", get badge() { return REBUILT.t("common.soon"); } },
+    { id: "profile", get label() { return REBUILT.t("common.profile"); }, icon: "user", group: "account", sheetOnly: true },
+    { id: "settings", get label() { return REBUILT.t("common.settings"); }, icon: "sliders", group: "account" },
   ];
   const MORE_IDS = ["planner", "analytics", "achievements", "ai", "profile", "settings"];
 
   const GROUPS = [
     { id: "main", label: "" },
-    { id: "insights", label: "تقدّمك" },
+    { id: "insights", get label() { return REBUILT.t("common.your_progress"); } },
     { id: "ai", label: "" },
     { id: "account", label: "" },
   ];
@@ -55,12 +55,12 @@ REBUILT.Shell = (function () {
     }).join("");
 
     return `
-      <button type="button" class="sidebar__brand" data-nav="dashboard" aria-label="REBUILT — الرئيسية">
+      <button type="button" class="sidebar__brand" data-nav="dashboard" aria-label="${REBUILT.t("common.rebuilt_home")}">
         ${REBUILT.Brand.lockup("sidebar__lockup")}
         ${REBUILT.Brand.mark("sidebar__mark")}
       </button>
-      <nav class="sidebar__nav" aria-label="التنقل الرئيسي">${groups}</nav>
-      <button type="button" class="sidebar__user" data-nav="profile" id="sidebar-user" data-tip="الملف الشخصي" aria-label="الملف الشخصي">
+      <nav class="sidebar__nav" aria-label="${REBUILT.t("common.main_navigation")}">${groups}</nav>
+      <button type="button" class="sidebar__user" data-nav="profile" id="sidebar-user" data-tip="${REBUILT.t("common.profile")}" aria-label="${REBUILT.t("common.profile")}">
         <span id="sidebar-avatar"></span>
         <span class="sidebar__user-info">
           <span class="sidebar__username" id="sidebar-username">—</span>
@@ -75,11 +75,11 @@ REBUILT.Shell = (function () {
 
   function topbarHTML() {
     return `
-      <button type="button" class="topbar__brand" data-nav="dashboard" aria-label="REBUILT — الرئيسية">${REBUILT.Brand.lockup("topbar__lockup")}</button>
+      <button type="button" class="topbar__brand" data-nav="dashboard" aria-label="${REBUILT.t("common.rebuilt_home")}">${REBUILT.Brand.lockup("topbar__lockup")}</button>
       <div class="topbar__end">
-        <span class="pill pill--streak" title="أيام الاستمرار">${I().svg("flame", { size: 16 })}<span class="num" id="topbar-streak">0</span></span>
-        <span class="pill pill--xp" title="المستوى">${I().svg("bolt", { size: 16 })}<span class="num" id="topbar-level">1</span></span>
-        <button type="button" class="topbar__avatar" data-nav="profile" aria-label="الملف الشخصي"><span id="topbar-avatar"></span></button>
+        <span class="pill pill--streak" title="${REBUILT.t("common.streak_days")}">${I().svg("flame", { size: 16 })}<span class="num" id="topbar-streak">0</span></span>
+        <span class="pill pill--xp" title="${REBUILT.t("common.level")}">${I().svg("bolt", { size: 16 })}<span class="num" id="topbar-level">1</span></span>
+        <button type="button" class="topbar__avatar" data-nav="profile" aria-label="${REBUILT.t("common.profile")}"><span id="topbar-avatar"></span></button>
       </div>`;
   }
 
@@ -88,7 +88,7 @@ REBUILT.Shell = (function () {
     return `
       <div class="bottom-nav__inner">
         ${tabs.map((n) => `<button type="button" class="tab-item" data-nav="${n.id}" aria-label="${n.label}">${I().svg(n.icon)}<span>${n.label}</span></button>`).join("")}
-        <button type="button" class="tab-item" id="more-btn" aria-label="المزيد" aria-haspopup="dialog">${I().svg("menu")}<span>المزيد</span></button>
+        <button type="button" class="tab-item" id="more-btn" aria-label="${REBUILT.t("common.more")}" aria-haspopup="dialog">${I().svg("menu")}<span>${REBUILT.t("common.more")}</span></button>
       </div>`;
   }
 
@@ -105,12 +105,20 @@ REBUILT.Shell = (function () {
     mounted = true;
   }
 
+  /** Draw the navigation again (a new language or theme changes its words and the logo). */
+  function remount() {
+    closeMore();
+    mounted = false;
+    mount();
+    if (REBUILT.Router) setActive(REBUILT.Router.getCurrent());
+  }
+
   /** Reflect current state in the chrome (name, avatar initial, level, streak, XP bar). */
   function update(state) {
     if (!mounted) return;
     const info = REBUILT.XP.getLevelInfo(state.xp.total);
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set("sidebar-username", state.user.name || "بطل REBUILT");
+    set("sidebar-username", state.user.name || REBUILT.t("common.rebuilt_hero"));
     set("sidebar-level", info.level);
     set("sidebar-streak", state.streak.current);
     set("topbar-level", info.level);
@@ -151,7 +159,7 @@ REBUILT.Shell = (function () {
     const sheet = document.createElement("div");
     sheet.className = "more-sheet";
     sheet.setAttribute("role", "dialog");
-    sheet.setAttribute("aria-label", "المزيد");
+    sheet.setAttribute("aria-label", REBUILT.t("common.more"));
     sheet.innerHTML = `
       <div class="more-sheet__grab"></div>
       <div class="more-sheet__grid">
@@ -176,5 +184,5 @@ REBUILT.Shell = (function () {
     document.removeEventListener("keydown", onMoreKey);
   }
 
-  return { NAV, mount, update, setActive, openMore, closeMore };
+  return { NAV, mount, remount, update, setActive, openMore, closeMore };
 })();

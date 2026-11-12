@@ -10,18 +10,24 @@ window.REBUILT = window.REBUILT || {};
 REBUILT.Brand = (function () {
   const BASE = "assets/brand/";
 
+  /* The wordmark and the R are drawn in the theme's ink colour: a picture loaded through <img> cannot read the
+     page's CSS variables, so the light theme has its own copies (…-light.svg) and the right one is picked when
+     the markup is built (a theme change re-renders the screen). */
+  const isLight = () => !!(REBUILT.Theme && REBUILT.Theme.getResolved() === "light");
+  const withInk = (file) => (isLight() ? file.replace(/\.svg$/, "-light.svg") : file);
+
   function img(file, cls, alt, extra) {
     return `<img class="${cls || ""}" src="${BASE}${file}" alt="${alt === undefined ? "REBUILT" : alt}" ${extra || ""} decoding="async" />`;
   }
 
   /** Horizontal lockup: mark + REBUILT wordmark + "Build yourself". */
-  const lockup = (cls) => img("rebuilt-lockup.svg", cls, "REBUILT — Build yourself", 'width="690" height="166"');
+  const lockup = (cls) => img(withInk("rebuilt-lockup.svg"), cls, "REBUILT — Build yourself", 'width="690" height="166"');
   /** The R + stair mark on its own. */
-  const mark = (cls) => img("rebuilt-mark.svg", cls, "REBUILT", 'width="284" height="212"');
+  const mark = (cls) => img(withInk("rebuilt-mark.svg"), cls, "REBUILT", 'width="284" height="212"');
   /** The rising stair — the logo's three gradient bars, used as a motif. */
   const stair = (cls) => img("rebuilt-stair.svg", cls, "", 'width="162" height="150" aria-hidden="true"');
   /** Heavy squared REBUILT wordmark (no tagline). */
-  const wordmark = (cls) => img("rebuilt-wordmark.svg", cls, "REBUILT");
+  const wordmark = (cls) => img(withInk("rebuilt-wordmark.svg"), cls, "REBUILT");
 
   /** First letter of a name (Arabic or Latin), upper-cased; "R" when there's no name. */
   function initial(name) {

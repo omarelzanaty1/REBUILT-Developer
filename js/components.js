@@ -18,34 +18,33 @@ REBUILT.Components = (function () {
 
   function formatDate(iso) {
     if (!iso) return "";
-    const d = new Date(iso + "T00:00:00");
-    return d.toLocaleDateString("ar-EG-u-nu-latn", { day: "numeric", month: "short" });
+    return REBUILT.I18n.date(iso, { day: "numeric", month: "short" });
   }
 
   function frequencyLabel(habit) {
-    if (!habit.frequency || habit.frequency === "daily") return "كل يوم";
-    if (habit.frequency === "weekly") return "أسبوعيًا";
+    if (!habit.frequency || habit.frequency === "daily") return REBUILT.t("common.every_day");
+    if (habit.frequency === "weekly") return REBUILT.t("common.weekly");
     if (Array.isArray(habit.targetDays) && habit.targetDays.length) {
-      return habit.targetDays.map((d) => REBUILT.Data.WEEKDAY_LABELS[d]).join("، ");
+      return habit.targetDays.map((d) => REBUILT.Data.WEEKDAY_LABELS[d]).join(REBUILT.t("common.text"));
     }
-    return "أيام محددة";
+    return REBUILT.t("common.specific_days");
   }
 
-  const PRIORITY_LABEL = { urgent: "عاجلة", high: "عالية", medium: "متوسطة", low: "منخفضة" };
+  const priorityLabel = (priority) => (["urgent", "high", "medium", "low"].includes(priority) ? REBUILT.t("common." + priority) : "");
 
   function priorityBadge(priority) {
-    return `<span class="badge badge--priority-${esc(priority)}">${PRIORITY_LABEL[priority] || esc(priority)}</span>`;
+    return `<span class="badge badge--priority-${esc(priority)}">${priorityLabel(priority) || esc(priority)}</span>`;
   }
 
   const checkBtn = (action, id, done, title) => `
-    <button type="button" class="row__check" data-action="${action}" data-id="${esc(id)}" aria-pressed="${done}" aria-label="${done ? "إلغاء إنجاز" : "تحديد كمنجز"}: ${esc(title)}">
+    <button type="button" class="row__check" data-action="${action}" data-id="${esc(id)}" aria-pressed="${done}" aria-label="${done ? REBUILT.t("common.undo_completion") : REBUILT.t("common.mark_as_done")}: ${esc(title)}">
       ${done ? I().svg("check", { size: 17, stroke: 2.6 }) : ""}
     </button>`;
 
   const rowActions = (editAction, deleteAction, id, title) => `
     <div class="row__actions">
-      <button type="button" class="icon-btn" data-action="${editAction}" data-id="${esc(id)}" aria-label="تعديل: ${esc(title)}">${I().svg("edit")}</button>
-      <button type="button" class="icon-btn icon-btn--danger" data-action="${deleteAction}" data-id="${esc(id)}" aria-label="حذف: ${esc(title)}">${I().svg("trash")}</button>
+      <button type="button" class="icon-btn" data-action="${editAction}" data-id="${esc(id)}" aria-label="${REBUILT.t("common.edit", { p1: esc(title) })}">${I().svg("edit")}</button>
+      <button type="button" class="icon-btn icon-btn--danger" data-action="${deleteAction}" data-id="${esc(id)}" aria-label="${REBUILT.t("common.delete", { p1: esc(title) })}">${I().svg("trash")}</button>
     </div>`;
 
   function habitRow(habit) {
@@ -55,11 +54,11 @@ REBUILT.Components = (function () {
       <div class="row row--habit ${done ? "is-done" : ""}" data-habit-id="${esc(habit.id)}">
         ${checkBtn("toggle-habit", habit.id, done, habit.title)}
         <span class="row__icon">${I().svg(iconKey)}</span>
-        <button type="button" class="row__body" data-action="edit-habit" data-id="${esc(habit.id)}" aria-label="تعديل: ${esc(habit.title)}">
+        <button type="button" class="row__body" data-action="edit-habit" data-id="${esc(habit.id)}" aria-label="${REBUILT.t("common.edit", { p1: esc(habit.title) })}">
           <span class="row__title">${esc(habit.title)}</span>
           <span class="row__meta">
             <span>${frequencyLabel(habit)}</span>
-            ${habit.time ? `<span class="num">${esc(habit.time)}</span>` : ""}
+            ${habit.time ? `<span class="num">${esc(REBUILT.I18n.time(habit.time))}</span>` : ""}
             ${habit.currentStreak > 0 ? `<span class="row__streak">${I().svg("flame", { size: 14 })}<span class="num">${habit.currentStreak}</span></span>` : ""}
           </span>
         </button>
@@ -75,12 +74,12 @@ REBUILT.Components = (function () {
       <div class="row row--task ${task.completed ? "is-done" : ""}" data-task-id="${esc(task.id)}">
         ${checkBtn("toggle-task", task.id, task.completed, task.title)}
         <span class="row__icon">${I().svg("tasks")}</span>
-        <button type="button" class="row__body" data-action="edit-task" data-id="${esc(task.id)}" aria-label="تعديل: ${esc(task.title)}">
+        <button type="button" class="row__body" data-action="edit-task" data-id="${esc(task.id)}" aria-label="${REBUILT.t("common.edit", { p1: esc(task.title) })}">
           <span class="row__title">${esc(task.title)}</span>
           <span class="row__meta ${overdue ? "row__meta--overdue" : ""}">
             ${priorityBadge(task.priority)}
-            ${task.date ? `<span class="row__date">${I().svg("calendar")} ${formatDate(task.date)}${task.time ? ` · <span class="num">${esc(task.time)}</span>` : ""}</span>` : ""}
-            ${overdue ? `<span class="row__overdue">متأخرة</span>` : ""}
+            ${task.date ? `<span class="row__date">${I().svg("calendar")} ${formatDate(task.date)}${task.time ? ` · <span class="num">${esc(REBUILT.I18n.time(task.time))}</span>` : ""}</span>` : ""}
+            ${overdue ? `<span class="row__overdue">${REBUILT.t("common.overdue")}</span>` : ""}
           </span>
         </button>
         <span class="row__xp"><bdi>+${task.xp} XP</bdi></span>
@@ -97,9 +96,9 @@ REBUILT.Components = (function () {
       <div class="row row--schedule ${item.completed ? "is-done" : ""}" data-schedule-id="${esc(item.id)}">
         ${checkBtn(opts.checkAction || "toggle-schedule-item", item.id, item.completed, item.title)}
         <span class="row__icon">${I().svg(icon)}</span>
-        <button type="button" class="row__body" data-action="edit-schedule-item" data-id="${esc(item.id)}" aria-label="تعديل: ${esc(item.title)}">
+        <button type="button" class="row__body" data-action="edit-schedule-item" data-id="${esc(item.id)}" aria-label="${REBUILT.t("common.edit", { p1: esc(item.title) })}">
           <span class="row__title">${esc(item.title)}</span>
-          <span class="row__meta"><span class="num">${esc(item.startTime)}${item.endTime ? "–" + esc(item.endTime) : ""}</span>${item.notes ? `<span>${esc(item.notes)}</span>` : ""}</span>
+          <span class="row__meta"><span class="num">${esc(REBUILT.I18n.time(item.startTime))}${item.endTime ? "–" + esc(REBUILT.I18n.time(item.endTime)) : ""}</span>${item.notes ? `<span>${esc(item.notes)}</span>` : ""}</span>
         </button>
         <span></span>
         ${opts.editable !== false ? rowActions("edit-schedule-item", "delete-schedule-item", item.id, item.title) : "<span></span>"}
@@ -123,47 +122,47 @@ REBUILT.Components = (function () {
             ${goal.why ? `<p class="goal__why">${esc(goal.why)}</p>` : ""}
           </div>
           <div class="goal__actions">
-            <button type="button" class="icon-btn" data-action="edit-goal" data-id="${esc(goal.id)}" aria-label="تعديل الهدف: ${esc(goal.title)}">${I().svg("edit")}</button>
+            <button type="button" class="icon-btn" data-action="edit-goal" data-id="${esc(goal.id)}" aria-label="${REBUILT.t("common.edit_goal", { p1: esc(goal.title) })}">${I().svg("edit")}</button>
           </div>
         </header>
 
         <div class="goal__progress">
-          <div class="progress ${done ? "" : "progress--lg"}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p.pct}" aria-label="تقدّم الهدف">
+          <div class="progress ${done ? "" : "progress--lg"}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p.pct}" aria-label="${REBUILT.t("common.goal_progress")}">
             <span class="progress__fill ${done ? "progress__fill--success" : ""}" style="width:${p.pct}%"></span>
           </div>
           <div class="goal__stats">
             <span class="goal__pct num">${p.pct}%</span>
-            ${p.total ? `<span class="goal__count"><span class="num">${p.done}/${p.total}</span> خطوات</span>` : `<span class="goal__count">من غير خطوات لسه</span>`}
+            ${p.total ? `<span class="goal__count"><span class="num">${p.done}/${p.total}</span> ${REBUILT.t("common.steps")}</span>` : `<span class="goal__count">${REBUILT.t("common.no_steps_yet")}</span>`}
             ${due ? `<span class="badge ${overdue ? "badge--priority-urgent" : "badge--priority-medium"}">${I().svg("flag", { size: 12 })}${due}</span>` : ""}
-            ${done ? `<span class="badge badge--success">${I().svg("check", { size: 12, stroke: 2.4 })}اتحقق</span>` : ""}
+            ${done ? `<span class="badge badge--success">${REBUILT.t("common.achieved", { p1: I().svg("check", { size: 12, stroke: 2.4 }) })}</span>` : ""}
           </div>
         </div>
 
         ${p.total || !done ? `
-        <ul class="steps" aria-label="خطوات الهدف">
+        <ul class="steps" aria-label="${REBUILT.t("common.goal_steps")}">
           ${goal.steps.map((s) => `
             <li class="step ${s.done ? "is-done" : ""}">
               <button type="button" class="step__check" data-action="toggle-step" data-id="${esc(goal.id)}" data-step="${esc(s.id)}" aria-pressed="${s.done}" aria-label="${esc(s.title)}">${s.done ? I().svg("check", { size: 14, stroke: 2.8 }) : ""}</button>
               <span class="step__title">${esc(s.title)}</span>
-              <button type="button" class="icon-btn icon-btn--sm icon-btn--danger step__remove" data-action="delete-step" data-id="${esc(goal.id)}" data-step="${esc(s.id)}" aria-label="حذف الخطوة: ${esc(s.title)}">${I().svg("close")}</button>
+              <button type="button" class="icon-btn icon-btn--sm icon-btn--danger step__remove" data-action="delete-step" data-id="${esc(goal.id)}" data-step="${esc(s.id)}" aria-label="${REBUILT.t("common.delete_step", { p1: esc(s.title) })}">${I().svg("close")}</button>
             </li>`).join("")}
         </ul>` : ""}
 
         ${!done ? `
         <form class="step-add" data-goal-step-form data-id="${esc(goal.id)}" autocomplete="off">
-          <input class="field__input step-add__input" name="step" type="text" maxlength="120" placeholder="ضيف خطوة صغيرة…" aria-label="خطوة جديدة لهدف: ${esc(goal.title)}" />
-          <button type="submit" class="btn btn--secondary btn--sm" aria-label="إضافة الخطوة">${I().svg("plus")}</button>
+          <input class="field__input step-add__input" name="step" type="text" maxlength="120" placeholder="${REBUILT.t("common.add_a_small_step")}" aria-label="${REBUILT.t("common.new_step_for_goal", { p1: esc(goal.title) })}" />
+          <button type="submit" class="btn btn--secondary btn--sm" aria-label="${REBUILT.t("common.add_step")}">${I().svg("plus")}</button>
         </form>` : ""}
 
         ${canFinish ? `
         <div class="goal__finish">
-          <span>${p.total ? "كل الخطوات اتعملت." : "خلّصت الهدف ده؟"}</span>
-          <button type="button" class="btn btn--primary btn--sm" data-action="complete-goal" data-id="${esc(goal.id)}">${I().svg("check", { size: 16, stroke: 2.4 })}علّمه كمتحقق</button>
+          <span>${p.total ? REBUILT.t("common.all_steps_done") : REBUILT.t("common.finished_this_goal")}</span>
+          <button type="button" class="btn btn--primary btn--sm" data-action="complete-goal" data-id="${esc(goal.id)}">${REBUILT.t("common.mark_as_achieved", { p1: I().svg("check", { size: 16, stroke: 2.4 }) })}</button>
         </div>` : ""}
         ${done ? `
         <div class="goal__finish goal__finish--done">
-          <span>اتحقق${goal.completedAt ? " في " + formatDate(goal.completedAt) : ""}.</span>
-          <button type="button" class="btn btn--ghost btn--sm" data-action="reopen-goal" data-id="${esc(goal.id)}">${I().svg("undo", { size: 16 })}رجّعه نشط</button>
+          <span>${REBUILT.t("common.achieved_2", { p1: goal.completedAt ? REBUILT.t("common.on") + formatDate(goal.completedAt) : "" })}</span>
+          <button type="button" class="btn btn--ghost btn--sm" data-action="reopen-goal" data-id="${esc(goal.id)}">${REBUILT.t("common.reopen", { p1: I().svg("undo", { size: 16 }) })}</button>
         </div>` : ""}
       </article>`;
   }
@@ -186,10 +185,10 @@ REBUILT.Components = (function () {
   function achievementBadge(ach) {
     const unlocked = ach.unlocked;
     return `
-      <div class="badge-card ${unlocked ? "is-unlocked" : "is-locked"}" data-achievement-id="${esc(ach.id)}" tabindex="0" role="group" aria-label="${esc(ach.name)} — ${unlocked ? "اتفتح" : "مقفول"}">
+      <div class="badge-card ${unlocked ? "is-unlocked" : "is-locked"}" data-achievement-id="${esc(ach.id)}" tabindex="0" role="group" aria-label="${esc(ach.name)} — ${unlocked ? REBUILT.t("common.unlocked") : REBUILT.t("common.locked")}">
         <div class="badge-card__icon">${I().svg(unlocked ? I().resolve(ach.icon, "trophy") : "lock", { size: 28 })}</div>
         <div class="badge-card__name">${esc(ach.name)}</div>
-        <div class="badge-card__desc">${unlocked ? ach.description : "لسه مقفول"}</div>
+        <div class="badge-card__desc">${unlocked ? ach.description : REBUILT.t("common.still_locked")}</div>
         ${unlocked && ach.unlockedAt ? `<div class="badge-card__date">${formatDate(ach.unlockedAt)}</div>` : ""}
       </div>`;
   }
@@ -249,7 +248,7 @@ REBUILT.Components = (function () {
     const control = o.textarea ? `<textarea ${attrs}>${esc(o.value || "")}</textarea>` : `<input ${attrs} value="${esc(o.value == null ? "" : o.value)}" />`;
     return `
       <div class="field" data-field="${o.name}">
-        <label class="field__label" for="${id}">${o.label}${o.optional ? `<span class="optional">اختياري</span>` : ""}</label>
+        <label class="field__label" for="${id}">${o.label}${o.optional ? `<span class="optional">${REBUILT.t("common.optional")}</span>` : ""}</label>
         ${control}
         ${o.hint ? `<span class="field__hint" id="${id}-hint">${o.hint}</span>` : ""}
         <span class="field__error" id="${id}-err" role="alert">${I().svg("alert", { size: 14 })}<span data-err-text></span></span>
@@ -304,7 +303,29 @@ REBUILT.Components = (function () {
     return sel ? sel.dataset.value : null;
   }
 
+  /* ---------- Language + theme switch (sign-in and onboarding screens, before Settings exists) ---------- */
+
+  /** Two small buttons: the other language (named in its own language) and the other theme. */
+  function prefSwitch() {
+    const I18n = REBUILT.I18n;
+    const other = I18n.languages().find((l) => l.code !== I18n.lang());
+    const toLight = REBUILT.Theme.getResolved() !== "light";
+    const themeLabel = REBUILT.t(toLight ? "common.theme_to_light" : "common.theme_to_dark");
+    return `
+      <div class="pref-switch">
+        ${other ? `<button type="button" class="pref-switch__btn pref-switch__btn--lang" data-pref-lang="${other.code}" lang="${other.code}" dir="${other.dir}" title="${REBUILT.t("common.language_switch")}" aria-label="${REBUILT.t("common.language_switch")}: ${esc(other.name)}"><span class="pref-switch__full">${esc(other.name)}</span><span class="pref-switch__short" aria-hidden="true">${esc(other.code.toUpperCase())}</span></button>` : ""}
+        <button type="button" class="pref-switch__btn pref-switch__btn--theme" data-pref-theme="${toLight ? "light" : "dark"}" title="${themeLabel}" aria-label="${themeLabel}">${REBUILT.Icons.svg(toLight ? "sun" : "moon", { size: 18 })}</button>
+      </div>`;
+  }
+
+  /** Make the buttons from prefSwitch() work. Safe to call after every render of the container. */
+  function bindPrefSwitch(root) {
+    root.querySelectorAll("[data-pref-lang]").forEach((b) => b.addEventListener("click", () => REBUILT.I18n.setLang(b.dataset.prefLang)));
+    root.querySelectorAll("[data-pref-theme]").forEach((b) => b.addEventListener("click", () => REBUILT.Theme.setPref(b.dataset.prefTheme)));
+  }
+
   return {
+    prefSwitch, bindPrefSwitch,
     esc, habitRow, taskRow, scheduleRow, goalCard, goalMini, priorityBadge, achievementBadge, emptyState, pageHeader,
     formatDate, frequencyLabel, inputField, setFieldError, clearErrorsOnInput, segmented, bindSegmented, segmentedValue,
   };

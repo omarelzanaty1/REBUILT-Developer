@@ -26,10 +26,13 @@
 
   /* Logo gradient stops (taken from the vector logo) */
   --brand-amber: #ffb500;
+  /* The brand colours as "r, g, b" so a tint is written rgba(var(--yellow-rgb), 0.2) and follows the theme. */
+  --yellow-rgb: 255, 229, 4;
+  --orange-rgb: 253, 102, 43;
   --grad-brand: linear-gradient(135deg, #fd662b 0%, #ffb500 55%, #ffe504 100%);
   /* Progress fills run from the inline-start (right in RTL) to the head. */
   --grad-progress: linear-gradient(270deg, #fd662b 0%, #ffb500 60%, #ffe504 100%);
-  --grad-brand-soft: linear-gradient(135deg, rgba(253, 102, 43, 0.16), rgba(255, 229, 4, 0.1));
+  --grad-brand-soft: linear-gradient(135deg, rgba(var(--orange-rgb), 0.16), rgba(var(--yellow-rgb), 0.1));
 
   /* ---------- Surfaces (warm neutrals derived from #201F19) ---------- */
   --bg: #151410;
@@ -38,6 +41,8 @@
   --surface-2: #2a2921;
   --surface-3: #35342a;
   --surface-hover: #2e2d24;
+  --surface-rgb: 32, 31, 25; /* = --surface, for translucent layers */
+  --bar-rgb: 16, 15, 11; /* top bar / bottom bar glass */
   --overlay: rgba(10, 9, 6, 0.72);
 
   --border: #3b3a2f;
@@ -55,16 +60,32 @@
   --primary-hover: #fff04d;
   --primary-press: #e6cf00;
   --accent: var(--brand-orange);
-  --accent-soft: rgba(253, 102, 43, 0.14);
-  --primary-soft: rgba(255, 229, 4, 0.12);
+  --accent-soft: rgba(var(--orange-rgb), 0.14);
+  --primary-soft: rgba(var(--yellow-rgb), 0.12);
+  /* Yellow / orange used as TEXT, icons and outlines on a surface. On dark they are the brand colours themselves;
+     on light a deeper shade of the same hue (bright yellow cannot be read on white). Fills keep the brand colours. */
+  --primary-ink: var(--brand-yellow);
+  --orange-ink: var(--brand-orange);
+  --accent-text: #ff8a5e; /* small orange text (badges) */
 
   --success: #5fd49a;
-  --success-soft: rgba(95, 212, 154, 0.14);
+  --success-rgb: 95, 212, 154;
+  --success-soft: rgba(var(--success-rgb), 0.14);
   --danger: #ff5e72;
-  --danger-soft: rgba(255, 94, 114, 0.14);
+  --danger-rgb: 255, 94, 114;
+  --danger-soft: rgba(var(--danger-rgb), 0.14);
+  --on-danger: #2a0a10; /* text on a solid danger button */
 
+  /* Google's sign-in button follows Google's own light / dark button guidelines */
+  --google-bg: #131314;
+  --google-bg-hover: #1d1d1f;
+  --google-border: #8e918f;
+  --google-border-hover: #b4b7b5;
+  --google-ink: #e3e3e3;
   --ring-track: rgba(255, 255, 255, 0.08);
   --focus-ring: #ffe504;
+  --selection: rgba(var(--yellow-rgb), 0.28);
+  --btn-edge: transparent; /* a hairline around yellow fills (needed on white) */
 
   /* Legacy aliases so un-migrated markup (AI chat log) keeps working */
   --accent-strong: var(--brand-yellow);
@@ -122,7 +143,7 @@
   --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-2: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
   --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.75);
-  --glow-brand: 0 8px 28px -8px rgba(253, 102, 43, 0.55);
+  --glow-brand: 0 8px 28px -8px rgba(var(--orange-rgb), 0.55);
 
   /* ---------- Motion ---------- */
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -145,6 +166,71 @@
   /* Used by brand SVGs (logo ink + counters) */
   --rb-ink: #ffffff;
   --rb-bg: #201f19;
+}
+
+/* ============================================================
+   Light theme — chosen in Settings, or followed from the device ("System").
+   Same names, different values: no component carries a colour of its own.
+   Backgrounds are a warm off-white, cards are white, text is the brand dark.
+   Yellow and orange stay the identity: fills (buttons, progress) keep the
+   exact brand colours; where they are used as text or outlines on a light
+   surface they step down to a deeper shade so they can be read (≥ 4.5:1).
+   ============================================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f6f4ec;
+  --bg-deep: #efece0;
+  --surface: #ffffff;
+  --surface-2: #f6f4ec;
+  --surface-3: #eceadd;
+  --surface-hover: #f1eee3;
+  --surface-rgb: 255, 255, 255;
+  --bar-rgb: 246, 244, 236;
+  --overlay: rgba(32, 31, 25, 0.46);
+
+  --border: #d9d5c2;
+  --border-soft: #e6e3d4;
+  --border-strong: #b3ae95;
+
+  --ink: #201f19;
+  --ink-soft: #4a4740;
+  --ink-faint: #5f5b4a; /* ≥ 4.5:1 on white, on --bg and on the sidebar */
+  --ink-on-brand: #201f19;
+
+  --yellow-rgb: 214, 160, 0; /* tints and outlines: a gold that shows on white */
+  --primary-hover: #fff04d;
+  --primary-press: #e6cf00;
+  --primary-ink: #8a4b00;
+  --orange-ink: #c2410c;
+  --accent-text: #a63708;
+  --primary-soft: rgba(var(--yellow-rgb), 0.16);
+  --accent-soft: rgba(var(--orange-rgb), 0.12);
+
+  --success: #15803d;
+  --success-rgb: 21, 128, 61;
+  --danger: #c81e3a;
+  --danger-rgb: 200, 30, 58;
+  --on-danger: #ffffff;
+
+  --google-bg: #ffffff;
+  --google-bg-hover: #f2f2f2;
+  --google-border: #747775;
+  --google-border-hover: #5f6160;
+  --google-ink: #1f1f1f;
+
+  --ring-track: rgba(32, 31, 25, 0.09);
+  --focus-ring: #9c5700;
+  --selection: rgba(var(--yellow-rgb), 0.3);
+  --btn-edge: rgba(32, 31, 25, 0.14);
+
+  --shadow-1: 0 1px 2px rgba(32, 31, 25, 0.07), 0 0 0 1px rgba(32, 31, 25, 0.02);
+  --shadow-2: 0 12px 30px -14px rgba(32, 31, 25, 0.28);
+  --shadow-3: 0 26px 60px -24px rgba(32, 31, 25, 0.38);
+  --glow-brand: 0 8px 24px -10px rgba(var(--orange-rgb), 0.6);
+
+  --rb-ink: #201f19;
+  --rb-bg: #f3f0e6;
 }
 
 @media (max-width: 1079px) {

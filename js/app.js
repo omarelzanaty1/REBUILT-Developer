@@ -111,11 +111,11 @@ REBUILT.App = (function () {
   /* ---------------- Strict mode: failures are shown, never hidden ---------------- */
 
   const SYNC_TEXT = {
-    network: "مقدرناش نحفظ التغيير: مفيش اتصال بالسيرفر.",
-    permission: "السيرفر رفض حفظ التغيير (صلاحيات).",
-    missing_table: "مقدرناش نحفظ التغيير: قاعدة البيانات مش جاهزة.",
-    server: "مقدرناش نحفظ التغيير: السيرفر فيه مشكلة.",
-    session: "انتهت جلستك. سجّل دخولك تاني.",
+    get network() { return REBUILT.t("common.couldn_t_save_the_change"); },
+    get permission() { return REBUILT.t("common.the_server_refused_to_save"); },
+    get missing_table() { return REBUILT.t("common.couldn_t_save_the_change_2"); },
+    get server() { return REBUILT.t("common.couldn_t_save_the_change_3"); },
+    get session() { return REBUILT.t("common.your_session_ended_sign_in"); },
   };
   let lastSyncToast = 0;
   let resyncing = false;
@@ -126,7 +126,7 @@ REBUILT.App = (function () {
     const now = Date.now();
     if (now - lastSyncToast > 4000) {
       lastSyncToast = now;
-      REBUILT.Toast.error((SYNC_TEXT[err.kind] || "مقدرناش نحفظ التغيير على السيرفر.") + " هنرجّع الشاشة للي محفوظ فعلًا.");
+      REBUILT.Toast.error((SYNC_TEXT[err.kind] || REBUILT.t("common.couldn_t_save_the_change_4")) + REBUILT.t("common.we_ve_restored_the_screen"));
     }
     resync();
   }
@@ -167,7 +167,26 @@ REBUILT.App = (function () {
     return ok;
   }
 
+  /**
+   * The language or the theme changed (Settings, or the switch on the sign-in screens): draw what is on show again.
+   * Nothing is stored here — the choice lives on this device (REBUILT.Prefs) and the data is never touched.
+   */
+  function repaint() {
+    const app = document.getElementById("app");
+    if (app && !app.hidden && state) {
+      if (REBUILT.Modal.isOpen()) REBUILT.Modal.close(); // its words were written in the old language
+      REBUILT.Shell.remount();
+      REBUILT.Router.renderCurrent();
+      REBUILT.Router.refreshTitle();
+    } else if (REBUILT.Gate && REBUILT.Gate.rerender) {
+      REBUILT.Gate.rerender();
+    }
+  }
+
   async function init() {
+    REBUILT.I18n.translateStatic(); // the static markup of index.html (skip link, nav label, page description, corner tag)
+    REBUILT.I18n.onChange(repaint);
+    REBUILT.Theme.onChange(repaint);
     try { document.documentElement.setAttribute("data-mode", REBUILT.Auth.mode()); } catch (err) { /* cosmetic: the corner tag */ }
     REBUILT.Auth.watchAuthEvents();
     REBUILT.Storage.setSyncErrorHandler(onSyncError); // only ever called in strict mode
@@ -233,7 +252,7 @@ REBUILT.App = (function () {
     if (!r) return null;
     if (r.mode === "link") {
       REBUILT.OAuthNotice = r; // settings.js shows it next to the sign-in methods, then clears it
-      if (r.ok) REBUILT.Toast.show({ icon: "checkCircle", text: "اتربط حساب Google بحسابك.", tone: "success" });
+      if (r.ok) REBUILT.Toast.show({ icon: "checkCircle", text: REBUILT.t("common.your_google_account_is_now"), tone: "success" });
       return "settings";
     }
     if (r.ok === false) REBUILT.Toast.show({ icon: "alert", text: REBUILT.Components.esc(r.error), tone: "danger", duration: 5000 });
@@ -285,7 +304,7 @@ REBUILT.App = (function () {
       icon: "trash",
       text,
       tone: "default",
-      action: { label: "تراجع", onClick: onUndo },
+      action: { label: REBUILT.t("common.undo"), onClick: onUndo },
     });
   }
 
@@ -363,7 +382,7 @@ REBUILT.App = (function () {
       REBUILT.Storage.syncDeleteHabit(id);
       REBUILT.Modal.close();
       settle();
-      undoToast("اتمسحت العادة.", () => Actions.restoreHabit(snapshot, index));
+      undoToast(REBUILT.t("common.habit_deleted"), () => Actions.restoreHabit(snapshot, index));
     },
 
     restoreHabit(snapshot, index) {
@@ -374,7 +393,7 @@ REBUILT.App = (function () {
       REBUILT.Streak.computeHabitStreak(snapshot);
       REBUILT.Storage.syncRestoreHabit(state.user.id, snapshot);
       settle();
-      REBUILT.Toast.show({ icon: "undo", text: "رجّعنا العادة.", tone: "default", duration: 2000 });
+      REBUILT.Toast.show({ icon: "undo", text: REBUILT.t("common.habit_restored"), tone: "default", duration: 2000 });
     },
 
     addHabit(payload) {
@@ -396,7 +415,7 @@ REBUILT.App = (function () {
       state.habits.push(habit);
       REBUILT.Storage.syncAddHabit(state.user.id, habit);
       settle();
-      REBUILT.Toast.show({ icon: "flame", text: "عادة جديدة اتضافت، يلا نبدأ فيها.", tone: "success" });
+      REBUILT.Toast.show({ icon: "flame", text: REBUILT.t("common.new_habit_added_let_s"), tone: "success" });
     },
 
     updateHabit(id, payload) {
@@ -406,7 +425,7 @@ REBUILT.App = (function () {
       REBUILT.Streak.computeHabitStreak(habit);
       REBUILT.Storage.syncUpdateHabit(id, payload);
       settle();
-      REBUILT.Toast.show({ icon: "check", text: "اتحفظت التعديلات.", tone: "default", duration: 1800 });
+      REBUILT.Toast.show({ icon: "check", text: REBUILT.t("common.changes_saved"), tone: "default", duration: 1800 });
     },
 
     /* ---- Tasks ---- */
@@ -450,7 +469,7 @@ REBUILT.App = (function () {
       REBUILT.Storage.syncDeleteTask(id);
       REBUILT.Modal.close();
       settle();
-      undoToast("اتمسحت المهمة.", () => Actions.restoreTask(snapshot, index));
+      undoToast(REBUILT.t("common.task_deleted"), () => Actions.restoreTask(snapshot, index));
     },
 
     restoreTask(snapshot, index) {
@@ -459,7 +478,7 @@ REBUILT.App = (function () {
       if (snapshot.completed) REBUILT.XP.addXP(state, snapshot.xp);
       REBUILT.Storage.syncRestoreTask(state.user.id, snapshot);
       settle();
-      REBUILT.Toast.show({ icon: "undo", text: "رجّعنا المهمة.", tone: "default", duration: 2000 });
+      REBUILT.Toast.show({ icon: "undo", text: REBUILT.t("common.task_restored"), tone: "default", duration: 2000 });
     },
 
     addTask(payload) {
@@ -479,7 +498,7 @@ REBUILT.App = (function () {
       state.tasks.push(task);
       REBUILT.Storage.syncAddTask(state.user.id, task);
       settle();
-      REBUILT.Toast.show({ icon: "tasks", text: "تمام، ضفناها للقايمة.", tone: "success" });
+      REBUILT.Toast.show({ icon: "tasks", text: REBUILT.t("common.done_added_to_your_list"), tone: "success" });
     },
 
     updateTask(id, payload) {
@@ -488,7 +507,7 @@ REBUILT.App = (function () {
       Object.assign(task, payload);
       REBUILT.Storage.syncUpdateTask(id, payload);
       settle();
-      REBUILT.Toast.show({ icon: "check", text: "اتحفظت التعديلات.", tone: "default", duration: 1800 });
+      REBUILT.Toast.show({ icon: "check", text: REBUILT.t("common.changes_saved"), tone: "default", duration: 1800 });
     },
 
     /* ---- Planner / schedule items ---- */
@@ -507,7 +526,7 @@ REBUILT.App = (function () {
       state.scheduleItems.push(item);
       REBUILT.Storage.syncAddScheduleItem(state.user.id, item);
       commit();
-      REBUILT.Toast.show({ icon: "calendar", text: "اتضاف لخطة يومك.", tone: "success" });
+      REBUILT.Toast.show({ icon: "calendar", text: REBUILT.t("common.added_to_your_day_plan"), tone: "success" });
     },
 
     updateScheduleItem(id, payload) {
@@ -516,7 +535,7 @@ REBUILT.App = (function () {
       Object.assign(item, payload);
       REBUILT.Storage.syncUpdateScheduleItem(id, payload);
       commit();
-      REBUILT.Toast.show({ icon: "check", text: "اتحفظت التعديلات.", tone: "default", duration: 1800 });
+      REBUILT.Toast.show({ icon: "check", text: REBUILT.t("common.changes_saved"), tone: "default", duration: 1800 });
     },
 
     deleteScheduleItem(id) {
@@ -527,7 +546,7 @@ REBUILT.App = (function () {
       REBUILT.Storage.syncDeleteScheduleItem(id);
       REBUILT.Modal.close();
       commit();
-      undoToast("اتمسح من خطة اليوم.", () => Actions.restoreScheduleItem(snapshot, index));
+      undoToast(REBUILT.t("common.removed_from_today_s_plan"), () => Actions.restoreScheduleItem(snapshot, index));
     },
 
     restoreScheduleItem(snapshot, index) {
@@ -535,7 +554,7 @@ REBUILT.App = (function () {
       state.scheduleItems.splice(Math.min(index, state.scheduleItems.length), 0, snapshot);
       REBUILT.Storage.syncRestoreScheduleItem(state.user.id, snapshot);
       commit();
-      REBUILT.Toast.show({ icon: "undo", text: "رجّعنا العنصر.", tone: "default", duration: 2000 });
+      REBUILT.Toast.show({ icon: "undo", text: REBUILT.t("common.item_restored"), tone: "default", duration: 2000 });
     },
 
     toggleScheduleItem(id) {
@@ -558,7 +577,7 @@ REBUILT.App = (function () {
       const goal = REBUILT.Goals.create(payload);
       state.goals.push(goal);
       Actions.persistGoals();
-      REBUILT.Toast.show({ icon: "target", text: "هدف جديد اتضاف. قسّمه لخطوات صغيرة.", tone: "success" });
+      REBUILT.Toast.show({ icon: "target", text: REBUILT.t("common.new_goal_added_break_it"), tone: "success" });
     },
 
     updateGoal(id, payload) {
@@ -570,7 +589,7 @@ REBUILT.App = (function () {
       if (next.status === "done" && next.steps.some((s) => !s.done)) { next.status = "active"; next.completedAt = null; }
       state.goals[idx] = next;
       Actions.persistGoals();
-      REBUILT.Toast.show({ icon: "check", text: "اتحفظت التعديلات.", tone: "default", duration: 1800 });
+      REBUILT.Toast.show({ icon: "check", text: REBUILT.t("common.changes_saved"), tone: "default", duration: 1800 });
     },
 
     deleteGoal(id) {
@@ -580,14 +599,14 @@ REBUILT.App = (function () {
       state.goals.splice(index, 1);
       REBUILT.Modal.close();
       Actions.persistGoals();
-      undoToast("اتمسح الهدف.", () => Actions.restoreGoal(snapshot, index));
+      undoToast(REBUILT.t("common.goal_deleted"), () => Actions.restoreGoal(snapshot, index));
     },
 
     restoreGoal(snapshot, index) {
       if (state.goals.some((g) => g.id === snapshot.id)) return;
       state.goals.splice(Math.min(index, state.goals.length), 0, snapshot);
       Actions.persistGoals();
-      REBUILT.Toast.show({ icon: "undo", text: "رجّعنا الهدف.", tone: "default", duration: 2000 });
+      REBUILT.Toast.show({ icon: "undo", text: REBUILT.t("common.goal_restored"), tone: "default", duration: 2000 });
     },
 
     addStep(goalId, title) {
@@ -615,7 +634,7 @@ REBUILT.App = (function () {
       if (index < 0) return;
       const removed = goal.steps.splice(index, 1)[0];
       Actions.persistGoals();
-      undoToast("اتمسحت الخطوة.", () => {
+      undoToast(REBUILT.t("common.step_deleted"), () => {
         const g = state.goals.find((x) => x.id === goalId);
         if (!g || g.steps.some((s) => s.id === removed.id)) return;
         g.steps.splice(Math.min(index, g.steps.length), 0, removed);
@@ -629,7 +648,7 @@ REBUILT.App = (function () {
       goal.status = "done";
       goal.completedAt = todayISO();
       Actions.persistGoals();
-      REBUILT.Toast.show({ icon: "trophy", text: "هدف اتحقق! مبروك.", tone: "achievement", duration: 3600 });
+      REBUILT.Toast.show({ icon: "trophy", text: REBUILT.t("common.goal_achieved_congrats"), tone: "achievement", duration: 3600 });
       REBUILT.Toast.confetti();
     },
 
@@ -696,7 +715,7 @@ REBUILT.App = (function () {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        REBUILT.Toast.show({ icon: "download", text: "اتصدّرت بياناتك.", tone: "success" });
+        REBUILT.Toast.show({ icon: "download", text: REBUILT.t("common.your_data_was_exported"), tone: "success" });
       } catch (err) {
         REBUILT.Toast.error(REBUILT.Messages.genericError());
       }
@@ -704,7 +723,7 @@ REBUILT.App = (function () {
 
     importData(file) {
       if (REBUILT.Auth.isRealAuth()) {
-        REBUILT.Toast.error("الاستيراد متاح في الوضع المحلي بس.");
+        REBUILT.Toast.error(REBUILT.t("common.import_is_only_available_in"));
         return;
       }
       const reader = new FileReader();
@@ -714,13 +733,13 @@ REBUILT.App = (function () {
           parsed = JSON.parse(reader.result);
           if (!parsed || !Array.isArray(parsed.habits) || !Array.isArray(parsed.tasks)) throw new Error("shape");
         } catch (err) {
-          REBUILT.Toast.error("الملف ده مش متوافق. جرّب ملف تاني.");
+          REBUILT.Toast.error(REBUILT.t("common.that_file_isn_t_compatible"));
           return;
         }
         const ok = await REBUILT.Modal.confirm({
-          title: "استبدال بياناتك الحالية؟",
-          text: "هيتم استبدال كل بياناتك الحالية على الجهاز ده ببيانات الملف. الخطوة دي مش بترجع.",
-          confirmLabel: "استبدل البيانات",
+          title: REBUILT.t("common.replace_your_current_data"),
+          text: REBUILT.t("common.this_will_replace_all_your"),
+          confirmLabel: REBUILT.t("common.replace_data"),
           danger: true,
         });
         if (!ok) return;
@@ -728,7 +747,7 @@ REBUILT.App = (function () {
         migrateShape();
         save();
         REBUILT.Router.navigateTo("dashboard");
-        REBUILT.Toast.show({ icon: "upload", text: "اتضافت البيانات بنجاح.", tone: "success" });
+        REBUILT.Toast.show({ icon: "upload", text: REBUILT.t("common.data_added_successfully"), tone: "success" });
       };
       reader.onerror = () => REBUILT.Toast.error(REBUILT.Messages.genericError());
       reader.readAsText(file);
@@ -737,24 +756,24 @@ REBUILT.App = (function () {
     async loadDemoData() {
       if (REBUILT.Auth.isRealAuth()) return;
       const ok = await REBUILT.Modal.confirm({
-        title: "تحميل بيانات تجريبية؟",
-        text: "هتستبدل بياناتك الحالية على الجهاز ده ببيانات تجريبية للتجربة بس.",
-        confirmLabel: "حمّل البيانات التجريبية",
+        title: REBUILT.t("common.load_sample_data"),
+        text: REBUILT.t("common.this_will_replace_your_current"),
+        confirmLabel: REBUILT.t("common.load_sample_data_2"),
       });
       if (!ok) return;
       state = REBUILT.Data.buildDemoState();
       migrateShape();
       save();
       REBUILT.Router.navigateTo("dashboard");
-      REBUILT.Toast.show({ icon: "info", text: "اتحمّلت بيانات تجريبية.", tone: "success" });
+      REBUILT.Toast.show({ icon: "info", text: REBUILT.t("common.sample_data_loaded"), tone: "success" });
     },
 
     async resetToEmpty() {
       if (REBUILT.Auth.isRealAuth()) return;
       const ok = await REBUILT.Modal.confirm({
-        title: "مسح كل البيانات؟",
-        text: "هيتمسح كل اللي على الجهاز ده نهائيًا: العادات، المهام، الأهداف، الـXP والتاريخ. مفيش رجوع من الخطوة دي.",
-        confirmLabel: "امسح كل حاجة",
+        title: REBUILT.t("common.delete_all_data"),
+        text: REBUILT.t("common.everything_on_this_device_will"),
+        confirmLabel: REBUILT.t("common.delete_everything"),
         danger: true,
       });
       if (!ok) return;

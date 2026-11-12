@@ -12,7 +12,7 @@ REBUILT.Pages = REBUILT.Pages || {};
 REBUILT.Pages.profile = (function () {
   const { XP, Data, Charts, Components, Icons: I } = REBUILT;
   const esc = Components.esc;
-  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const fmt = (n) => REBUILT.I18n.number(n);
 
   function occupationLabel(profile) {
     const found = Data.OCCUPATIONS.find((o) => o.id === profile.occupation);
@@ -42,61 +42,61 @@ REBUILT.Pages.profile = (function () {
     const aboutEmpty = !occupationLabel(p) && !p.lifeDescription && !p.skills.length && !p.hobbies.length;
 
     return `
-      ${Components.pageHeader({ title: "الملف الشخصي" })}
+      ${Components.pageHeader({ title: REBUILT.t("profile.profile") })}
 
       <section class="profile-hero card card--brand">
         ${REBUILT.Brand.avatar(state.user.name, "xl")}
         <div class="profile-hero__info">
           <h2 class="profile-hero__name">
-            <span>${esc(state.user.name || "بطل REBUILT")}</span>
-            <button type="button" class="icon-btn icon-btn--sm" id="edit-name-btn" aria-label="تعديل الاسم">${I.svg("edit")}</button>
+            <span>${esc(state.user.name || REBUILT.t("profile.rebuilt_hero"))}</span>
+            <button type="button" class="icon-btn icon-btn--sm" id="edit-name-btn" aria-label="${REBUILT.t("profile.edit_name")}">${I.svg("edit")}</button>
           </h2>
-          <p class="profile-hero__meta">بيبني نفسه من <span class="num">${daysSinceStart}</span> يوم${state.user.email ? ` · <bdi class="num-ltr">${esc(state.user.email)}</bdi>` : ""}</p>
+          <p class="profile-hero__meta">${REBUILT.t("profile.building_yourself_for")} <span class="num">${daysSinceStart}</span> ${REBUILT.t("profile.days_2", { n: daysSinceStart, p1: state.user.email ? ` · <bdi class="num-ltr">${esc(state.user.email)}</bdi>` : "" })}</p>
           <div class="profile-hero__xp">
-            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${levelInfo.progressPct}" aria-label="تقدّم المستوى"><span class="progress__fill" style="width:${levelInfo.progressPct}%"></span></div>
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${levelInfo.progressPct}" aria-label="${REBUILT.t("profile.level_progress")}"><span class="progress__fill" style="width:${levelInfo.progressPct}%"></span></div>
             <span class="num" dir="ltr">${fmt(levelInfo.currentLevelXP)} / ${fmt(levelInfo.neededForNextLevel)} XP</span>
           </div>
         </div>
         <div class="profile-hero__level">
-          ${Charts.radialProgress({ pct: levelInfo.progressPct, size: 92, strokeWidth: 8, ariaLabel: "تقدّم المستوى" })}
+          ${Charts.radialProgress({ pct: levelInfo.progressPct, size: 92, strokeWidth: 8, ariaLabel: REBUILT.t("profile.level_progress") })}
           <div class="profile-hero__level-num"><small>LEVEL</small><strong class="num">${levelInfo.level}</strong></div>
         </div>
       </section>
 
-      <section class="stat-grid" aria-label="أرقامك">
-        ${statTile("bolt", "XP إجمالي", `<span class="num">${fmt(state.xp.total)}</span>`)}
-        ${statTile("flame", "السلسلة الحالية", `<span class="num">${state.streak.current}</span><small> يوم</small>`)}
-        ${statTile("trophy", "أطول سلسلة", `<span class="num">${state.streak.longest}</span><small> يوم</small>`)}
-        ${statTile("target", "أهداف اتحققت", `<span class="num">${goalStats.done}</span>`)}
-        ${statTile("repeat", "عادات اتعملت", `<span class="num">${fmt(habitsCompletedTotal)}</span>`)}
-        ${statTile("tasks", "مهام اتنجزت", `<span class="num">${fmt(tasksCompletedTotal)}</span>`)}
+      <section class="stat-grid" aria-label="${REBUILT.t("profile.your_numbers")}">
+        ${statTile("bolt", REBUILT.t("profile.total_xp"), `<span class="num">${fmt(state.xp.total)}</span>`)}
+        ${statTile("flame", REBUILT.t("profile.current_streak"), `<span class="num">${state.streak.current}</span><small> ${REBUILT.t("profile.days", { n: state.streak.current })}</small>`)}
+        ${statTile("trophy", REBUILT.t("profile.longest_streak"), `<span class="num">${state.streak.longest}</span><small> ${REBUILT.t("profile.days", { n: state.streak.longest })}</small>`)}
+        ${statTile("target", REBUILT.t("profile.goals_achieved"), `<span class="num">${goalStats.done}</span>`)}
+        ${statTile("repeat", REBUILT.t("profile.habits_done"), `<span class="num">${fmt(habitsCompletedTotal)}</span>`)}
+        ${statTile("tasks", REBUILT.t("profile.tasks_completed"), `<span class="num">${fmt(tasksCompletedTotal)}</span>`)}
       </section>
 
       <div class="grid grid--2">
         <section class="card">
           <div class="card__head">
-            <h2 class="card__title">عنّي</h2>
-            <button type="button" class="btn btn--secondary btn--sm" id="edit-about-btn">${I.svg("edit")}تعديل</button>
+            <h2 class="card__title">${REBUILT.t("profile.about_me")}</h2>
+            <button type="button" class="btn btn--secondary btn--sm" id="edit-about-btn">${REBUILT.t("profile.edit", { p1: I.svg("edit") })}</button>
           </div>
           ${aboutEmpty
-            ? Components.emptyState({ compact: true, icon: "user", text: "ضيف نبذة عنك علشان REBUILT يبقى مناسب أكتر ليك." })
+            ? Components.emptyState({ compact: true, icon: "user", text: REBUILT.t("profile.add_a_short_bio_so") })
             : `<dl class="about">
-                ${occupationLabel(p) ? `<div><dt>شغلك / دراستك</dt><dd>${esc(occupationLabel(p))}</dd></div>` : ""}
-                ${p.lifeDescription ? `<div><dt>يومك</dt><dd>${esc(p.lifeDescription)}</dd></div>` : ""}
-                <div><dt>مهاراتك</dt><dd>${chips(p.skills, "لسه مفيش")}</dd></div>
-                <div><dt>اهتماماتك</dt><dd>${chips(p.hobbies, "لسه مفيش")}</dd></div>
-                ${p.challenges ? `<div><dt>اللي بيصعّب عليك</dt><dd>${esc(p.challenges)}</dd></div>` : ""}
+                ${occupationLabel(p) ? `<div><dt>${REBUILT.t("profile.work_study")}</dt><dd>${esc(occupationLabel(p))}</dd></div>` : ""}
+                ${p.lifeDescription ? `<div><dt>${REBUILT.t("profile.your_day")}</dt><dd>${esc(p.lifeDescription)}</dd></div>` : ""}
+                <div><dt>${REBUILT.t("profile.your_skills")}</dt><dd>${chips(p.skills, REBUILT.t("profile.nothing_yet"))}</dd></div>
+                <div><dt>${REBUILT.t("profile.your_interests")}</dt><dd>${chips(p.hobbies, REBUILT.t("profile.nothing_yet"))}</dd></div>
+                ${p.challenges ? `<div><dt>${REBUILT.t("profile.what_makes_it_hard")}</dt><dd>${esc(p.challenges)}</dd></div>` : ""}
               </dl>`}
         </section>
 
         <section class="card">
           <div class="card__head">
-            <h2 class="card__title">آخر إنجازاتك</h2>
-            <button type="button" class="card__link" data-nav="achievements">الكل ${I.svg("chevronLeft", { size: 14 })}</button>
+            <h2 class="card__title">${REBUILT.t("profile.your_latest_achievements")}</h2>
+            <button type="button" class="card__link" data-nav="achievements">${REBUILT.t("profile.all", { p1: I.svg("chevronLeft", { size: 14 }) })}</button>
           </div>
           ${unlocked.length
             ? `<div class="badge-grid badge-grid--compact">${unlocked.slice(-4).reverse().map(Components.achievementBadge).join("")}</div>`
-            : Components.emptyState({ compact: true, icon: "trophy", text: "أول إنجاز جاي قريب." })}
+            : Components.emptyState({ compact: true, icon: "trophy", text: REBUILT.t("profile.your_first_achievement_is_coming") })}
         </section>
       </div>
     `;
@@ -111,19 +111,19 @@ REBUILT.Pages.profile = (function () {
 
   function openNameForm(state) {
     REBUILT.Modal.open({
-      title: "تعديل الاسم",
+      title: REBUILT.t("profile.edit_name"),
       size: "sm",
       body: `
         <form class="form" id="edit-name-form" novalidate>
-          ${Components.inputField({ name: "name", label: "الاسم", value: state.user.name || "", maxlength: 40, autofocus: true })}
-          <div class="modal__footer"><button type="submit" class="btn btn--primary">حفظ</button></div>
+          ${Components.inputField({ name: "name", label: REBUILT.t("profile.name"), value: state.user.name || "", maxlength: 40, autofocus: true })}
+          <div class="modal__footer"><button type="submit" class="btn btn--primary">${REBUILT.t("profile.save")}</button></div>
         </form>`,
       onMount: (modal) => {
         Components.clearErrorsOnInput(modal);
         modal.querySelector("#edit-name-form").addEventListener("submit", (e) => {
           e.preventDefault();
           const name = (new FormData(e.target).get("name") || "").toString().trim();
-          if (!name) return Components.setFieldError(modal, "name", "اكتب اسمك.");
+          if (!name) return Components.setFieldError(modal, "name", REBUILT.t("profile.enter_your_name"));
           REBUILT.Modal.close();
           REBUILT.Actions.updateProfile({ name });
         });
@@ -139,30 +139,30 @@ REBUILT.Pages.profile = (function () {
 
     const tagBlock = (key, label, presets, placeholder) => `
       <div class="field" data-tags="${key}">
-        <span class="field__label">${label}<span class="optional">اختياري</span></span>
+        <span class="field__label">${label}<span class="optional">${REBUILT.t("profile.optional")}</span></span>
         <div class="chip-row" data-tag-list></div>
         <div class="gate__add">
           <input class="field__input" type="text" maxlength="60" placeholder="${placeholder}" aria-label="${placeholder}" data-tag-input />
-          <button type="button" class="btn btn--secondary" data-tag-add aria-label="إضافة">${I.svg("plus")}</button>
+          <button type="button" class="btn btn--secondary" data-tag-add aria-label="${REBUILT.t("profile.add")}">${I.svg("plus")}</button>
         </div>
       </div>`;
 
     REBUILT.Modal.open({
-      title: "عنّي",
+      title: REBUILT.t("profile.about_me"),
       body: `
         <form class="form" id="about-form" novalidate>
           <div class="field">
-            <span class="field__label" id="occ-lbl">بتعمل إيه في حياتك؟<span class="optional">اختياري</span></span>
+            <span class="field__label" id="occ-lbl">${REBUILT.t("profile.what_do_you_do_in")}<span class="optional">${REBUILT.t("profile.optional")}</span></span>
             <div class="chip-row" id="occ-picker" role="radiogroup" aria-labelledby="occ-lbl">
               ${Data.OCCUPATIONS.map((o) => `<button type="button" role="radio" aria-checked="${occupation === o.id}" class="chip ${occupation === o.id ? "is-selected" : ""}" data-occ="${o.id}">${o.label}</button>`).join("")}
             </div>
           </div>
-          ${Components.inputField({ name: "occupationCustom", label: "حدّد أكتر", value: p.occupationCustom || "", optional: true, maxlength: 60 })}
-          ${Components.inputField({ name: "lifeDescription", label: "يومك عادةً بيكون إزاي؟", value: p.lifeDescription || "", optional: true, textarea: true, rows: 3, maxlength: 600 })}
-          ${tagBlock("skills", "مهاراتك", Data.PRESET_SKILLS, "ضيف مهارة")}
-          ${tagBlock("hobbies", "اهتماماتك", Data.PRESET_HOBBIES, "ضيف اهتمام")}
-          ${Components.inputField({ name: "challenges", label: "إيه اللي بيصعّب عليك تنظم حياتك؟", value: p.challenges || "", optional: true, textarea: true, rows: 3, maxlength: 600 })}
-          <div class="modal__footer"><button type="submit" class="btn btn--primary">حفظ</button></div>
+          ${Components.inputField({ name: "occupationCustom", label: REBUILT.t("profile.select_more"), value: p.occupationCustom || "", optional: true, maxlength: 60 })}
+          ${Components.inputField({ name: "lifeDescription", label: REBUILT.t("profile.what_are_your_days_usually"), value: p.lifeDescription || "", optional: true, textarea: true, rows: 3, maxlength: 600 })}
+          ${tagBlock("skills", REBUILT.t("profile.your_skills"), Data.PRESET_SKILLS, REBUILT.t("profile.add_a_skill"))}
+          ${tagBlock("hobbies", REBUILT.t("profile.your_interests"), Data.PRESET_HOBBIES, REBUILT.t("profile.add_an_interest"))}
+          ${Components.inputField({ name: "challenges", label: REBUILT.t("profile.what_makes_it_hardest_to"), value: p.challenges || "", optional: true, textarea: true, rows: 3, maxlength: 600 })}
+          <div class="modal__footer"><button type="submit" class="btn btn--primary">${REBUILT.t("profile.save")}</button></div>
         </form>`,
       onMount: (modal) => {
         modal.querySelectorAll("#occ-picker .chip").forEach((btn) => {
@@ -221,7 +221,7 @@ REBUILT.Pages.profile = (function () {
           };
           REBUILT.Modal.close();
           REBUILT.Actions.updateUserProfile(payload);
-          REBUILT.Toast.show({ icon: "check", text: "اتحفظت بياناتك.", tone: "default", duration: 1800 });
+          REBUILT.Toast.show({ icon: "check", text: REBUILT.t("profile.your_details_were_saved"), tone: "default", duration: 1800 });
         });
       },
     });

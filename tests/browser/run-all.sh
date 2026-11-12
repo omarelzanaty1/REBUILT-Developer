@@ -7,13 +7,15 @@
 # Needs Playwright (see tests/browser/README.md). Exit status is non-zero if anything failed.
 set -u
 cd "$(dirname "$0")/../.."
-SUITES="${RB_ONLY:-local extra connected sw recovery otp google confirm channels strict}"
+SUITES="${RB_ONLY:-local extra connected sw recovery otp google confirm channels strict i18n i18n_connected}"
 LOG="${RB_OUT:-${TMPDIR:-/tmp}/rebuilt-browser-out}/sweep"; mkdir -p "$LOG"
 fail=0
 echo "=== unit: node tests/auth.test.js"
 node tests/auth.test.js > "$LOG/unit.txt" 2>&1; rc=$?; tail -n 1 "$LOG/unit.txt"; [ $rc -eq 0 ] || { echo "FAILED: unit"; fail=1; }
 echo "=== unit: node tests/strict.test.js"
 node tests/strict.test.js > "$LOG/strict-unit.txt" 2>&1; rc=$?; tail -n 1 "$LOG/strict-unit.txt"; [ $rc -eq 0 ] || { echo "FAILED: strict unit"; fail=1; }
+echo "=== unit: node tests/i18n.test.js"
+node tests/i18n.test.js > "$LOG/i18n-unit.txt" 2>&1; rc=$?; tail -n 1 "$LOG/i18n-unit.txt"; [ $rc -eq 0 ] || { echo "FAILED: i18n unit"; fail=1; }
 for s in $SUITES; do
   echo "=== browser: run_$s.js"
   start=$(date +%s)

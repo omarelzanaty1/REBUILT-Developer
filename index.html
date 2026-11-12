@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-theme="dark" data-theme-pref="dark" data-lang="ar" data-i18n-attr="data-mode-label:common.local_mode_tag">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>REBUILT — Build yourself.</title>
-  <meta name="description" content="REBUILT — عادات ومهام وأهداف وتطوير ذاتي في مكان واحد. Build yourself." />
+  <meta name="description" content="REBUILT — عادات ومهام وأهداف وتطوير ذاتي في مكان واحد. Build yourself." data-i18n-attr="content:common.meta_description" />
   <meta name="theme-color" content="#201F19" />
   <meta name="color-scheme" content="dark" />
   <!-- Build marker: lets anyone check WHICH version a host (Vercel / GitHub Pages) is really serving. Bump it with each release. -->
@@ -38,6 +38,26 @@
     })();
   </script>
 
+  <!-- Language + theme, applied BEFORE the first paint so the page never flashes in the wrong direction or colours.
+       Same key and rules as js/prefs.js, js/i18n.js and js/theme.js (which take over once the app has loaded):
+       lang "ar" (default) | "en"; theme "dark" (default) | "light" | "system" (follows the device). -->
+  <script>
+    /* rebuilt-prefs-boot */
+    (function () {
+      try {
+        var d = document.documentElement, p = {};
+        try { p = JSON.parse(window.localStorage.getItem("rebuilt_prefs_v1") || "{}") || {}; } catch (e) { p = {}; }
+        var lang = p.lang === "en" ? "en" : "ar";
+        d.setAttribute("lang", lang); d.setAttribute("dir", lang === "en" ? "ltr" : "rtl"); d.setAttribute("data-lang", lang);
+        var pref = p.theme === "light" || p.theme === "system" ? p.theme : "dark";
+        var light = pref === "light" || (pref === "system" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+        d.setAttribute("data-theme", light ? "light" : "dark"); d.setAttribute("data-theme-pref", pref);
+        var chrome = document.querySelector('meta[name="theme-color"]'); if (chrome) chrome.setAttribute("content", light ? "#F6F4EC" : "#201F19");
+        var scheme = document.querySelector('meta[name="color-scheme"]'); if (scheme) scheme.setAttribute("content", light ? "light" : "dark");
+      } catch (e) { /* the defaults in the markup apply: Arabic, dark */ }
+    })();
+  </script>
+
   <!-- Fonts: Cairo (Arabic + Latin UI) and Archivo Narrow (stand-in for the brand's Arial Narrow display face). -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -49,10 +69,11 @@
   <link rel="stylesheet" href="css/layout.css" />
   <link rel="stylesheet" href="css/screens.css" />
   <link rel="stylesheet" href="css/gate.css" />
+  <link rel="stylesheet" href="css/direction.css" />
   <link rel="stylesheet" href="css/ai-chat.css" />
 </head>
 <body>
-  <a class="skip-link" href="#page-content">تخطّى إلى المحتوى</a>
+  <a class="skip-link" href="#page-content" data-i18n="common.skip_link">تخطّى إلى المحتوى</a>
 
   <div id="gate-root" class="gate-root" hidden></div>
 
@@ -62,7 +83,7 @@
     <main class="main" id="main">
       <div class="page-content page-enter" id="page-content" tabindex="-1"></div>
     </main>
-    <nav class="bottom-nav" id="bottom-nav" aria-label="التنقل السريع"></nav>
+    <nav class="bottom-nav" id="bottom-nav" aria-label="التنقل السريع" data-i18n-attr="aria-label:common.nav_quick"></nav>
   </div>
 
   <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
@@ -70,6 +91,41 @@
 
   <!-- Supabase JS (public publishable key only; every table is protected by RLS) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Translation + theme core, then one dictionary file per language and area (Arabic is the default and the fallback) -->
+  <script src="js/prefs.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/locales/ar/common.js"></script>
+  <script src="js/locales/ar/messages.js"></script>
+  <script src="js/locales/ar/data.js"></script>
+  <script src="js/locales/ar/settings.js"></script>
+  <script src="js/locales/ar/gate.js"></script>
+  <script src="js/locales/ar/auth.js"></script>
+  <script src="js/locales/ar/dashboard.js"></script>
+  <script src="js/locales/ar/habits.js"></script>
+  <script src="js/locales/ar/tasks.js"></script>
+  <script src="js/locales/ar/goals.js"></script>
+  <script src="js/locales/ar/planner.js"></script>
+  <script src="js/locales/ar/profile.js"></script>
+  <script src="js/locales/ar/analytics.js"></script>
+  <script src="js/locales/ar/achievements.js"></script>
+  <script src="js/locales/ar/ai.js"></script>
+  <script src="js/locales/en/common.js"></script>
+  <script src="js/locales/en/messages.js"></script>
+  <script src="js/locales/en/data.js"></script>
+  <script src="js/locales/en/settings.js"></script>
+  <script src="js/locales/en/gate.js"></script>
+  <script src="js/locales/en/auth.js"></script>
+  <script src="js/locales/en/dashboard.js"></script>
+  <script src="js/locales/en/habits.js"></script>
+  <script src="js/locales/en/tasks.js"></script>
+  <script src="js/locales/en/goals.js"></script>
+  <script src="js/locales/en/planner.js"></script>
+  <script src="js/locales/en/profile.js"></script>
+  <script src="js/locales/en/analytics.js"></script>
+  <script src="js/locales/en/achievements.js"></script>
+  <script src="js/locales/en/ai.js"></script>
 
   <!-- Core (order matters: each file only depends on ones loaded before it) -->
   <script src="js/data.js"></script>

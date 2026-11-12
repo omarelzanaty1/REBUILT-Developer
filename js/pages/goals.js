@@ -17,9 +17,9 @@ REBUILT.Pages.goals = (function () {
 
   function header() {
     return Components.pageHeader({
-      title: "الأهداف",
-      sub: "حدّد اللي عايز توصله، وقسّمه لخطوات صغيرة تتابعها.",
-      actions: `<button type="button" class="btn btn--primary" data-action="open-add-goal">${I.svg("plus")}هدف جديد</button>`,
+      title: REBUILT.t("goals.goals"),
+      sub: REBUILT.t("goals.set_what_you_want_to"),
+      actions: `<button type="button" class="btn btn--primary" data-action="open-add-goal">${REBUILT.t("goals.new_goal", { p1: I.svg("plus") })}</button>`,
     });
   }
 
@@ -33,12 +33,12 @@ REBUILT.Pages.goals = (function () {
         <section class="card">
           ${Components.emptyState({
             icon: "target",
-            title: "لسه مفيش أهداف",
-            text: "الهدف الكبير بيبقى سهل لما تقسّمه لخطوات. ابدأ بهدف واحد.",
-            actions: [{ label: "هدف جديد", action: "open-add-goal", icon: "plus" }],
+            title: REBUILT.t("goals.no_goals_yet"),
+            text: REBUILT.t("goals.a_big_goal_gets_easy"),
+            actions: [{ label: REBUILT.t("goals.new_goal_2"), action: "open-add-goal", icon: "plus" }],
           })}
           <div class="suggest">
-            <p class="suggest__label">أو ابدأ بفكرة جاهزة:</p>
+            <p class="suggest__label">${REBUILT.t("goals.or_start_with_a_ready")}</p>
             <div class="chip-row">
               ${suggestions.map((t) => `<button type="button" class="chip" data-quick-goal="${esc(t)}">${I.svg("plus")}${esc(t)}</button>`).join("")}
             </div>
@@ -53,15 +53,15 @@ REBUILT.Pages.goals = (function () {
     return `
       ${header()}
 
-      <section class="stat-grid stat-grid--3" aria-label="ملخص الأهداف">
-        <div class="stat"><span class="stat__icon">${I.svg("target")}</span><span class="stat__value num">${stats.active}</span><span class="stat__label">أهداف شغّالة</span></div>
-        <div class="stat"><span class="stat__icon">${I.svg("trophy")}</span><span class="stat__value num">${stats.done}</span><span class="stat__label">أهداف اتحققت</span></div>
-        <div class="stat"><span class="stat__icon">${I.svg("trend")}</span><span class="stat__value num">${stats.avgProgress}<small>%</small></span><span class="stat__label">متوسط التقدّم</span></div>
+      <section class="stat-grid stat-grid--3" aria-label="${REBUILT.t("goals.goals_summary")}">
+        <div class="stat"><span class="stat__icon">${I.svg("target")}</span><span class="stat__value num">${stats.active}</span><span class="stat__label">${REBUILT.t("goals.active_goals")}</span></div>
+        <div class="stat"><span class="stat__icon">${I.svg("trophy")}</span><span class="stat__value num">${stats.done}</span><span class="stat__label">${REBUILT.t("goals.goals_achieved")}</span></div>
+        <div class="stat"><span class="stat__icon">${I.svg("trend")}</span><span class="stat__value num">${stats.avgProgress}<small>%</small></span><span class="stat__label">${REBUILT.t("goals.average_progress")}</span></div>
       </section>
 
-      <div class="tabs" role="tablist" aria-label="حالة الأهداف">
-        <button type="button" role="tab" class="tab ${ui.tab === "active" ? "is-active" : ""}" aria-selected="${ui.tab === "active"}" data-tab="active">شغّالة<span class="tab__count num">${stats.active}</span></button>
-        <button type="button" role="tab" class="tab ${ui.tab === "done" ? "is-active" : ""}" aria-selected="${ui.tab === "done"}" data-tab="done">اتحققت<span class="tab__count num">${stats.done}</span></button>
+      <div class="tabs" role="tablist" aria-label="${REBUILT.t("goals.goal_status")}">
+        <button type="button" role="tab" class="tab ${ui.tab === "active" ? "is-active" : ""}" aria-selected="${ui.tab === "active"}" data-tab="active">${REBUILT.t("goals.active")}<span class="tab__count num">${stats.active}</span></button>
+        <button type="button" role="tab" class="tab ${ui.tab === "done" ? "is-active" : ""}" aria-selected="${ui.tab === "done"}" data-tab="done">${REBUILT.t("goals.achieved")}<span class="tab__count num">${stats.done}</span></button>
       </div>
 
       ${list.length
@@ -69,8 +69,8 @@ REBUILT.Pages.goals = (function () {
         : `<section class="card">${Components.emptyState({
             compact: true,
             icon: ui.tab === "active" ? "target" : "trophy",
-            text: ui.tab === "active" ? "مفيش أهداف شغّالة دلوقتي." : "لسه مفيش هدف اتحقق. كمّل وهتوصل.",
-            actions: ui.tab === "active" ? [{ label: "هدف جديد", action: "open-add-goal", icon: "plus" }] : [],
+            text: ui.tab === "active" ? REBUILT.t("goals.no_active_goals_right_now") : REBUILT.t("goals.no_goal_achieved_yet_keep"),
+            actions: ui.tab === "active" ? [{ label: REBUILT.t("goals.new_goal_2"), action: "open-add-goal", icon: "plus" }] : [],
           })}</section>`}
     `;
   }
@@ -108,25 +108,25 @@ REBUILT.Pages.goals = (function () {
 
     const body = `
       <form class="form" id="goal-form" novalidate>
-        ${Components.inputField({ name: "title", label: "الهدف", value: editing ? editing.title : "", maxlength: 80, placeholder: "مثلاً: أقرأ 12 كتاب السنة دي", autofocus: !editing })}
-        ${Components.inputField({ name: "why", label: "ليه ده مهم؟", value: editing ? editing.why : "", optional: true, maxlength: 160, placeholder: "الدافع بيفرّق وقت التعب" })}
-        ${Components.inputField({ name: "targetDate", label: "موعد تحقيقه", type: "date", value: editing && editing.targetDate ? editing.targetDate : "", optional: true })}
+        ${Components.inputField({ name: "title", label: REBUILT.t("goals.goal"), value: editing ? editing.title : "", maxlength: 80, placeholder: REBUILT.t("goals.e_g_read_12_books"), autofocus: !editing })}
+        ${Components.inputField({ name: "why", label: REBUILT.t("goals.why_does_it_matter"), value: editing ? editing.why : "", optional: true, maxlength: 160, placeholder: REBUILT.t("goals.motivation_makes_a_difference_when") })}
+        ${Components.inputField({ name: "targetDate", label: REBUILT.t("goals.target_date"), type: "date", value: editing && editing.targetDate ? editing.targetDate : "", optional: true })}
 
         <div class="field">
-          <span class="field__label" id="steps-label">الخطوات<span class="optional">اختياري</span></span>
+          <span class="field__label" id="steps-label">${REBUILT.t("goals.steps")}<span class="optional">${REBUILT.t("goals.optional")}</span></span>
           <ul class="step-editor" id="step-editor" aria-labelledby="steps-label"></ul>
-          <button type="button" class="btn btn--secondary btn--sm step-editor__add" id="step-add">${I.svg("plus")}ضيف خطوة</button>
-          <span class="field__hint">التقدّم بيتحسب من الخطوات اللي بتعلّم عليها.</span>
+          <button type="button" class="btn btn--secondary btn--sm step-editor__add" id="step-add">${REBUILT.t("goals.add_step", { p1: I.svg("plus") })}</button>
+          <span class="field__hint">${REBUILT.t("goals.progress_is_calculated_from_the")}</span>
         </div>
 
         <div class="modal__footer">
-          <button type="submit" class="btn btn--primary">${editing ? "حفظ التعديلات" : "إضافة الهدف"}</button>
-          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-goal" data-id="${esc(editing.id)}">${I.svg("trash")}حذف</button>` : ""}
+          <button type="submit" class="btn btn--primary">${editing ? REBUILT.t("goals.save_changes") : REBUILT.t("goals.add_goal")}</button>
+          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-goal" data-id="${esc(editing.id)}">${REBUILT.t("goals.delete", { p1: I.svg("trash") })}</button>` : ""}
         </div>
       </form>`;
 
     REBUILT.Modal.open({
-      title: editing ? "تعديل الهدف" : "هدف جديد",
+      title: editing ? REBUILT.t("goals.edit_goal") : REBUILT.t("goals.new_goal_2"),
       body,
       onMount: (modal) => {
         const form = modal.querySelector("#goal-form");
@@ -137,8 +137,8 @@ REBUILT.Pages.goals = (function () {
           list.innerHTML = steps
             .map((s, i) => `
               <li class="step-editor__row">
-                <input class="field__input" type="text" maxlength="120" value="${esc(s.title)}" data-step-index="${i}" aria-label="الخطوة ${i + 1}" placeholder="الخطوة ${i + 1}" />
-                <button type="button" class="icon-btn icon-btn--danger" data-step-remove="${i}" aria-label="حذف الخطوة ${i + 1}">${I.svg("close")}</button>
+                <input class="field__input" type="text" maxlength="120" value="${esc(s.title)}" data-step-index="${i}" aria-label="${REBUILT.t("goals.step", { p1: i + 1 })}" placeholder="${REBUILT.t("goals.step", { p1: i + 1 })}" />
+                <button type="button" class="icon-btn icon-btn--danger" data-step-remove="${i}" aria-label="${REBUILT.t("goals.delete_step", { p1: i + 1 })}">${I.svg("close")}</button>
               </li>`)
             .join("");
           list.querySelectorAll("[data-step-index]").forEach((input) => {
@@ -171,7 +171,7 @@ REBUILT.Pages.goals = (function () {
           e.preventDefault();
           const fd = new FormData(form);
           const title = (fd.get("title") || "").toString().trim();
-          if (!title) return Components.setFieldError(modal, "title", "اكتب الهدف.");
+          if (!title) return Components.setFieldError(modal, "title", REBUILT.t("goals.enter_the_goal"));
           const payload = {
             title,
             why: (fd.get("why") || "").toString().trim(),

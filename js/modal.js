@@ -44,7 +44,7 @@ REBUILT.Modal = (function () {
           <div class="modal__grab" aria-hidden="true"></div>
           <div class="modal__header">
             <h2 class="modal__title" id="modal-title">${opts.title || ""}</h2>
-            <button type="button" class="icon-btn" data-modal-close aria-label="إغلاق">${REBUILT.Icons.close}</button>
+            <button type="button" class="icon-btn" data-modal-close aria-label="${REBUILT.t("common.close")}">${REBUILT.Icons.close}</button>
           </div>
           <div class="modal__body">${opts.body}</div>
         </div>
@@ -125,14 +125,14 @@ REBUILT.Modal = (function () {
         resolve(v);
       };
       open({
-        title: opts.title || "متأكد؟",
+        title: opts.title || REBUILT.t("common.are_you_sure"),
         size: "sm",
         role: "alertdialog",
         body: `
           ${opts.text ? `<p class="modal__text">${opts.text}</p>` : ""}
           <div class="modal__footer">
-            <button type="button" class="btn ${opts.danger ? "btn--danger-solid" : "btn--primary"}" data-confirm-yes>${opts.confirmLabel || "تأكيد"}</button>
-            <button type="button" class="btn btn--secondary" data-confirm-no autofocus>${opts.cancelLabel || "إلغاء"}</button>
+            <button type="button" class="btn ${opts.danger ? "btn--danger-solid" : "btn--primary"}" data-confirm-yes>${opts.confirmLabel || REBUILT.t("common.confirm")}</button>
+            <button type="button" class="btn btn--secondary" data-confirm-no autofocus>${opts.cancelLabel || REBUILT.t("common.cancel")}</button>
           </div>`,
         onMount: (modal) => {
           modal.querySelector("[data-confirm-yes]").addEventListener("click", () => { finish(true); close(); });

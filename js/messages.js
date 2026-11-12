@@ -29,26 +29,26 @@ REBUILT.Messages = (function () {
   }
 
   function greeting(state) {
-    const name = firstName(state) || "بطل";
+    const name = firstName(state) || REBUILT.t("messages.champ");
     const hour = new Date().getHours();
     let variants;
     if (hour < 12) {
       variants = [
-        `صباح الفل يا ${name}`,
-        `صباحك سكر يا ${name}`,
-        `يلا يا ${name}، يوم جديد يستاهل نبدأه صح`,
+        REBUILT.t("messages.good_morning", { name }),
+        REBUILT.t("messages.rise_and_shine", { name }),
+        REBUILT.t("messages.let_s_go_a_new", { name }),
       ];
     } else if (hour < 18) {
       variants = [
-        `أهلاً يا ${name}`,
-        `عامل إيه يا ${name}؟ النهارده لسه فيه وقت`,
-        `يلا يا ${name}، النص التاني من اليوم بانتظارك`,
+        REBUILT.t("messages.hey", { name }),
+        REBUILT.t("messages.how_s_it_going_there", { name }),
+        REBUILT.t("messages.come_on_the_second_half", { name }),
       ];
     } else {
       variants = [
-        `مساء الخير يا ${name}`,
-        `يلا يا ${name}، اقفل يومك بطريقة تليق بيك`,
-        `باقي شوية على آخر اليوم يا ${name}`,
+        REBUILT.t("messages.good_evening", { name }),
+        REBUILT.t("messages.come_on_close_out_your", { name }),
+        REBUILT.t("messages.almost_the_end_of_the", { name }),
       ];
     }
     return pick(state, "greeting", variants);
@@ -56,11 +56,11 @@ REBUILT.Messages = (function () {
 
   function subGreeting(state) {
     const variants = [
-      "مستعد نكسب اليوم ولا هنأجله لبكرة؟",
-      "يلا نشوف هنعمل فيه إيه النهارده.",
-      "كل يوم بتبني فيه نفسك أكتر شوية.",
-      "خطوة صغيرة النهارده، فرق كبير بعد شهر.",
-      "جاهز نكمل من وقفنا؟",
+      REBUILT.t("messages.ready_to_win_today_or"),
+      REBUILT.t("messages.let_s_see_what_we"),
+      REBUILT.t("messages.every_day_you_build_yourself"),
+      REBUILT.t("messages.a_small_step_today_a"),
+      REBUILT.t("messages.ready_to_pick_up_where"),
     ];
     return pick(state, "subGreeting", variants);
   }
@@ -69,51 +69,51 @@ REBUILT.Messages = (function () {
   function progressGreeting(state, pct) {
     if (pct <= 0) {
       const variants = [
-        "لسه اليوم طويل.. نبدأ بحاجة واحدة؟",
-        "يومك لسه في الأول، ابدأ بأي حاجة بسيطة.",
+        REBUILT.t("messages.the_day_is_still_young"),
+        REBUILT.t("messages.your_day_has_barely_started"),
       ];
       return pick(state, "progress0", variants);
     }
     if (pct >= 100) {
       const variants = [
-        "قفلت اليوم كله! كده إنت عملت اللي عليك.",
-        "يوم كامل من غير ما تسيب حاجة.",
+        REBUILT.t("messages.you_closed_out_the_whole"),
+        REBUILT.t("messages.a_full_day_without_leaving"),
       ];
       return pick(state, "progress100", variants);
     }
     if (pct >= 50) {
       const variants = [
-        "عاش، نص اليوم تقريبًا اتقفل.",
-        "ماشي كويس، كمّل بنفس الروح.",
+        REBUILT.t("messages.nice_about_half_the_day"),
+        REBUILT.t("messages.going_well_keep_up_the"),
       ];
       return pick(state, "progress50", variants);
     }
     const variants = [
-      "بداية تمام، فاضلك شوية.",
-      "يلا كمّل، لسه قدامك وقت.",
+      REBUILT.t("messages.good_start_a_few_more"),
+      REBUILT.t("messages.keep_going_you_still_have"),
     ];
     return pick(state, "progressLow", variants);
   }
 
   function welcomeFresh() {
-    return "أهلاً بيك في REBUILT\n\nهنا مش بنحاول نعمل يوم مثالي... إحنا بنبني يوم أحسن كل مرة.";
+    return REBUILT.t("messages.welcome_to_rebuilt_n_nwe");
   }
 
   function habitCompleted(state) {
     const variants = [
-      "عاش، كده بدأت اليوم صح.",
-      "تمام كده، خطوة كمان لقدام.",
-      "عاش عليك، واحدة واحدة وإنت بتبني نفسك فعلًا.",
-      "كده صح، كمّل بنفس الطاقة.",
-      "حلو، استمر كده.",
+      REBUILT.t("messages.nice_you_started_the_day"),
+      REBUILT.t("messages.all_good_one_more_step"),
+      REBUILT.t("messages.well_done_one_by_one"),
+      REBUILT.t("messages.that_s_it_keep_the"),
+      REBUILT.t("messages.nice_keep_it_going"),
     ];
     return pick(state, "habitCompleted", variants);
   }
 
   function habitUndone(state) {
     const variants = [
-      "تمام، لسه قدامك وقت تخلصها تاني.",
-      "ولا يهمك، ارجعلها لما تكون جاهز.",
+      REBUILT.t("messages.all_good_you_still_have"),
+      REBUILT.t("messages.no_worries_come_back_to"),
     ];
     return pick(state, "habitUndone", variants);
   }
@@ -121,34 +121,34 @@ REBUILT.Messages = (function () {
   function fewHabitsLeft(state, remaining) {
     if (remaining === 1) {
       const variants = [
-        "فاضلك واحدة بس، خلّصها ونقفل اليوم على نضافة.",
-        "عادة واحدة كمان وهتخلص يومك بالكامل.",
+        REBUILT.t("messages.just_one_left_finish_it"),
+        REBUILT.t("messages.one_more_habit_and_your"),
       ];
       return pick(state, "fewLeftOne", variants);
     }
     const variants = [
-      `فاضلك ${remaining} بس، خلّصهم ونقفل اليوم على نضافة.`,
-      `${remaining} حاجات بس وتخلص يومك.`,
+      REBUILT.t("messages.only_left_finish_them_and", { remaining }),
+      REBUILT.t("messages.just_things_and_your_day", { remaining }),
     ];
     return pick(state, "fewLeftMany", variants);
   }
 
   function allHabitsDone(state) {
     const variants = [
-      "يوم مقفول بالكامل، كده تمام.",
-      "خلصت كل حاجة النهارده! فخور بيك.",
-      "يوم نضيف من أوله لآخره.",
-      "عاش! يوم كامل من غير ما تسيب حاجة.",
+      REBUILT.t("messages.day_fully_closed_nicely_done"),
+      REBUILT.t("messages.you_finished_everything_today_proud"),
+      REBUILT.t("messages.a_clean_day_from_start"),
+      REBUILT.t("messages.nice_a_full_day_without"),
     ];
     return pick(state, "allHabitsDone", variants);
   }
 
   function taskCompleted(state) {
     const variants = [
-      "مهمة خلصت، كمّل بنفس الروح.",
-      "شطبناها، جاية التانية.",
-      "تمام، مهمة أقل وضغط أقل.",
-      "عاش، كده إنت بتتحكم في يومك مش العكس.",
+      REBUILT.t("messages.task_done_keep_up_the"),
+      REBUILT.t("messages.crossed_off_on_to_the"),
+      REBUILT.t("messages.nice_one_less_task_and"),
+      REBUILT.t("messages.well_done_you_re_in"),
     ];
     return pick(state, "taskCompleted", variants);
   }
@@ -156,70 +156,70 @@ REBUILT.Messages = (function () {
   function streakSubtitle(state, streak) {
     if (streak === 0) {
       const variants = [
-        "يلا نبدأ streak جديد من النهارده.",
-        "أول يوم في السلسلة الجديدة يبدأ دلوقتي.",
+        REBUILT.t("messages.let_s_start_a_new"),
+        REBUILT.t("messages.day_one_of_your_new"),
       ];
       return pick(state, "streakZero", variants);
     }
     const nextMilestone = streak < 7 ? 7 : streak < 14 ? 14 : streak < 30 ? 30 : streak + (10 - (streak % 10 || 10));
     const remaining = nextMilestone - streak;
     const variants = [
-      `متقطعهاش دلوقتي… فاضلك ${remaining} وتوصل ${nextMilestone}.`,
-      `${streak} يوم ورا بعض. كمّل، الرقم بيبقى أحلى كل يوم.`,
-      `سلسلة قوية يا صاحبي، متكسرهاش دلوقتي.`,
+      REBUILT.t("messages.don_t_break_it_now", { remaining, nextMilestone }),
+      REBUILT.t("messages.days_in_a_row_keep", { streak }),
+      REBUILT.t("messages.strong_streak_my_friend_don"),
     ];
     return pick(state, "streakSubtitle", variants);
   }
 
   function streakBroken(state) {
     const variants = [
-      "حصلت، متقفش عندها. المهم نرجع نبدأ من النهارده.",
-      "السلسلة اتقطعت، بس مش نهاية الدنيا. يلا نبدأ تاني.",
-      "معدية، اللي فات فات. النهارده يوم جديد.",
+      REBUILT.t("messages.it_happens_don_t_stop"),
+      REBUILT.t("messages.the_streak_broke_but_it"),
+      REBUILT.t("messages.it_s_fine_what_s"),
     ];
     return pick(state, "streakBroken", variants);
   }
 
   function levelUp(state, newLevel) {
     const variants = [
-      `ياااه، Level Up! بقيت <bdi>Level ${newLevel}</bdi>… مكمل ولا إيه؟`,
-      `مبروك، وصلت <bdi>Level ${newLevel}</bdi>. إنت بجد بتبني نفسك.`,
-      `<bdi>Level ${newLevel}</bdi>، كل يوم بتحسّن نفسك أكتر.`,
+      `${REBUILT.t("messages.whoa_level_up_you_re")} <bdi>Level ${newLevel}</bdi>${REBUILT.t("messages.still_going")}`,
+      `${REBUILT.t("messages.congrats_you_reached")} <bdi>Level ${newLevel}</bdi>${REBUILT.t("messages.you_re_really_building_yourself")}`,
+      `<bdi>Level ${newLevel}</bdi>${REBUILT.t("messages.you_get_a_little_better")}`,
     ];
     return pick(state, "levelUp", variants);
   }
 
   function achievementUnlocked(state, name) {
     const variants = [
-      `إنجاز جديد "${name}"، استاهلتها.`,
-      `فتحت إنجاز "${name}"، كمّل كده.`,
-      `عاش، كسبت "${name}".`,
+      REBUILT.t("messages.new_achievement_you_earned_it", { name }),
+      REBUILT.t("messages.you_unlocked_keep_it_up", { name }),
+      REBUILT.t("messages.nice_you_earned", { name }),
     ];
     return pick(state, "achievementUnlocked", variants);
   }
 
   function emptyHabits() {
-    return "لسه مفيش عادات.\nابدأ بحاجة بسيطة، والباقي هييجي واحدة واحدة.";
+    return REBUILT.t("messages.no_habits_yet_nstart_with");
   }
 
   function emptyTasks() {
-    return "لسه مفيش مهام.\nضيف أول مهمة وابدأ تنظم يومك.";
+    return REBUILT.t("messages.no_tasks_yet_nadd_your");
   }
 
   function emptyAchievements() {
-    return "الإنجازات لسه مقفولة.\nكمّل عاداتك ومهامك وهتفتحها واحدة واحدة.";
+    return REBUILT.t("messages.achievements_are_still_locked_nkeep");
   }
 
   function genericError() {
     const variants = [
-      "حصلت مشكلة صغيرة، جرّب تاني.",
-      "معلش، حاجة مظبطتش. جرّب تاني كمان شوية.",
+      REBUILT.t("messages.something_small_went_wrong_try"),
+      REBUILT.t("messages.sorry_something_didn_t_work"),
     ];
     return variants[Math.floor(Math.random() * variants.length)];
   }
 
   function confirmDelete(itemLabel) {
-    return `متأكد إنك عايز تمسح "${itemLabel}"؟`;
+    return REBUILT.t("messages.are_you_sure_you_want", { itemLabel });
   }
 
   return {

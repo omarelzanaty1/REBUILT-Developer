@@ -26,12 +26,12 @@
   padding: 5px 14px;
   border-radius: var(--r-pill);
   background: var(--accent-soft);
-  border: 1px solid rgba(253, 102, 43, 0.35);
-  color: #ff8a5e;
+  border: 1px solid rgba(var(--orange-rgb), 0.35);
+  color: var(--accent-text);
   font-size: var(--fs-sm);
   font-weight: var(--fw-black);
 }
-.ai-soon__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-orange); box-shadow: 0 0 0 3px rgba(253, 102, 43, 0.22); }
+.ai-soon__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-orange); box-shadow: 0 0 0 3px rgba(var(--orange-rgb), 0.22); }
 .ai-soon__heading { font-size: clamp(1.5rem, 3.6vw, 2.25rem); font-weight: var(--fw-black); line-height: 1.35; }
 .ai-soon__text { max-width: 34em; color: var(--ink-soft); font-size: var(--fs-lg); line-height: 1.95; }
 .ai-soon__cta { margin-top: var(--s-2); }
@@ -47,17 +47,17 @@
   border-radius: var(--r-xl);
   border: 1px solid var(--border-soft);
   background:
-    radial-gradient(120% 90% at 20% 0%, rgba(253, 102, 43, 0.16), transparent 58%),
+    radial-gradient(120% 90% at 20% 0%, rgba(var(--orange-rgb), 0.16), transparent 58%),
     var(--surface-2);
 }
 .ai-soon__svg { display: block; width: 100%; height: 100%; }
 .ai-soon__ring-track { fill: none; stroke: var(--ring-track); stroke-width: 10; }
 .ai-soon__ring-arc { fill: none; stroke: var(--brand-amber); stroke-width: 10; stroke-linecap: round; stroke-dasharray: 420 553; }
-.ai-soon__ring-halo { fill: rgba(255, 229, 4, 0.18); }
+.ai-soon__ring-halo { fill: rgba(var(--yellow-rgb), 0.18); }
 .ai-soon__ring-node { fill: var(--brand-yellow); }
 .ai-soon__disc { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
 .ai-soon__spark { transform-box: fill-box; transform-origin: center; animation: ai-soon-breathe 4.8s ease-in-out infinite alternate; }
-.ai-soon__spark-main { fill: var(--brand-orange); filter: drop-shadow(0 0 10px rgba(253, 102, 43, 0.5)); }
+.ai-soon__spark-main { fill: var(--brand-orange); filter: drop-shadow(0 0 10px rgba(var(--orange-rgb), 0.5)); }
 .ai-soon__spark-small { fill: var(--brand-yellow); opacity: 0.85; }
 @keyframes ai-soon-breathe { from { transform: scale(1); } to { transform: scale(1.08); } }
 
@@ -74,7 +74,7 @@
 
 /* ---------- Chat log (dormant) ---------- */
 
-.ai-notice { border-color: rgba(255, 229, 4, 0.25); background: linear-gradient(160deg, var(--primary-soft), var(--surface)); }
+.ai-notice { border-color: rgba(var(--yellow-rgb), 0.25); background: linear-gradient(160deg, var(--primary-soft), var(--surface)); }
 .ai-chat__log { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow-y: auto; margin-bottom: var(--s-4); padding-inline-end: 4px; }
 .ai-bubble { max-width: 82%; padding: 10px 14px; border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.8; }
 .ai-bubble--user { align-self: flex-end; background: var(--primary); color: var(--ink-on-brand); font-weight: var(--fw-bold); }

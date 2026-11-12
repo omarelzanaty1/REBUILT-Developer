@@ -1,0 +1,32 @@
+/* ============================================================
+   REBUILT — direction.css
+   The interface is written with logical properties (inline-start /
+   inline-end), so most of it follows the language by itself: Arabic
+   reads right-to-left, English left-to-right (<html dir> is set by
+   js/i18n.js). What a logical property cannot express lives here:
+   things that are drawn with a physical side, arrows that mean
+   "forward", and the margins that sit next to forced-LTR numerals.
+   Everything below applies to English (dir="ltr"); the Arabic
+   layout is the base styling and is not touched.
+   ============================================================ */
+
+/* Arrows and chevrons point "forward" / "back": the artwork is drawn for right-to-left, so mirror it. */
+html[dir="ltr"] .icon[data-icon="arrowLeft"],
+html[dir="ltr"] .icon[data-icon="arrowRight"],
+html[dir="ltr"] .icon[data-icon="chevronLeft"],
+html[dir="ltr"] .icon[data-icon="chevronRight"] { transform: scaleX(-1); }
+
+/* Progress runs from where reading starts to the head. */
+html[dir="ltr"] { --grad-progress: linear-gradient(90deg, #fd662b 0%, #ffb500 60%, #ffe504 100%); }
+
+/* The toggle knob travels towards the inline-end. */
+html[dir="ltr"] .switch input:checked + .switch__track::after { transform: translateX(20px); }
+
+/* The select's caret sits at the inline-end. */
+html[dir="ltr"] select.field__input { background-position: right 14px center; }
+
+/* Stat figures read in the page's own direction. */
+html[dir="ltr"] .stat__value { direction: ltr; }
+
+/* .num forces direction:ltr, which flips logical margins: put the gap on the side the label is on. */
+html[dir="ltr"] .tab__count { margin-right: 0; margin-left: 6px; }

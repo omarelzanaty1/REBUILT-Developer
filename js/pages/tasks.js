@@ -13,34 +13,34 @@ REBUILT.Pages.tasks = (function () {
   const ui = { tab: "today", filter: "all", sort: "priority" };
 
   const TABS = [
-    { id: "today", label: "النهارده" },
-    { id: "upcoming", label: "قادمة" },
-    { id: "overdue", label: "متأخرة" },
-    { id: "completed", label: "مكتملة" },
+    { id: "today", get label() { return REBUILT.t("tasks.today"); } },
+    { id: "upcoming", get label() { return REBUILT.t("tasks.upcoming"); } },
+    { id: "overdue", get label() { return REBUILT.t("tasks.overdue"); } },
+    { id: "completed", get label() { return REBUILT.t("tasks.completed"); } },
   ];
   const FILTERS = [
-    { id: "all", label: "الكل" },
-    { id: "urgent", label: "عاجلة" },
-    { id: "high", label: "عالية" },
-    { id: "medium", label: "متوسطة" },
-    { id: "low", label: "منخفضة" },
+    { id: "all", get label() { return REBUILT.t("tasks.all"); } },
+    { id: "urgent", get label() { return REBUILT.t("tasks.urgent"); } },
+    { id: "high", get label() { return REBUILT.t("tasks.high"); } },
+    { id: "medium", get label() { return REBUILT.t("tasks.medium"); } },
+    { id: "low", get label() { return REBUILT.t("tasks.low"); } },
   ];
   const SORTS = [
-    { id: "priority", label: "الأولوية" },
-    { id: "time", label: "الوقت" },
-    { id: "created", label: "تاريخ الإضافة" },
+    { id: "priority", get label() { return REBUILT.t("tasks.priority"); } },
+    { id: "time", get label() { return REBUILT.t("tasks.time"); } },
+    { id: "created", get label() { return REBUILT.t("tasks.date_added"); } },
   ];
   const PRIORITIES = [
-    { id: "low", label: "منخفضة" },
-    { id: "medium", label: "متوسطة" },
-    { id: "high", label: "عالية" },
-    { id: "urgent", label: "عاجلة" },
+    { id: "low", get label() { return REBUILT.t("tasks.low"); } },
+    { id: "medium", get label() { return REBUILT.t("tasks.medium"); } },
+    { id: "high", get label() { return REBUILT.t("tasks.high"); } },
+    { id: "urgent", get label() { return REBUILT.t("tasks.urgent"); } },
   ];
   const EMPTY = {
-    today: { icon: "checkCircle", text: "مفيش مهام مستنياك النهارده. استمتع بالهدوء أو ضيف مهمة." },
-    upcoming: { icon: "calendar", text: "مفيش مهام قادمة دلوقتي." },
-    overdue: { icon: "checkCircle", text: "مفيش حاجة متأخرة. كده تمام." },
-    completed: { icon: "trophy", text: "لسه مخلصتش أي مهمة. أول واحدة أسهل ما تتخيل." },
+    today: { icon: "checkCircle", get text() { return REBUILT.t("tasks.no_tasks_waiting_for_you"); } },
+    upcoming: { icon: "calendar", get text() { return REBUILT.t("tasks.no_upcoming_tasks_right_now"); } },
+    overdue: { icon: "checkCircle", get text() { return REBUILT.t("tasks.nothing_overdue_all_good"); } },
+    completed: { icon: "trophy", get text() { return REBUILT.t("tasks.you_haven_t_completed_any"); } },
   };
 
   function bucket(task, today) {
@@ -52,9 +52,9 @@ REBUILT.Pages.tasks = (function () {
 
   function header() {
     return Components.pageHeader({
-      title: "المهام",
-      sub: "رتّب شغلك بالأولوية والموعد.",
-      actions: `<button type="button" class="btn btn--primary" data-action="open-add-task">${I.svg("plus")}مهمة جديدة</button>`,
+      title: REBUILT.t("tasks.tasks"),
+      sub: REBUILT.t("tasks.organize_your_work_by_priority"),
+      actions: `<button type="button" class="btn btn--primary" data-action="open-add-task">${REBUILT.t("tasks.new_task", { p1: I.svg("plus") })}</button>`,
     });
   }
 
@@ -64,9 +64,9 @@ REBUILT.Pages.tasks = (function () {
         ${header()}
         <section class="card">${Components.emptyState({
           icon: "tasks",
-          title: "لسه مفيش مهام",
+          title: REBUILT.t("tasks.no_tasks_yet"),
           text: Messages.emptyTasks(),
-          actions: [{ label: "إضافة مهمة", action: "open-add-task", icon: "plus" }],
+          actions: [{ label: REBUILT.t("tasks.add_task"), action: "open-add-task", icon: "plus" }],
         })}</section>`;
     }
 
@@ -81,7 +81,7 @@ REBUILT.Pages.tasks = (function () {
     return `
       ${header()}
 
-      <div class="tabs" role="tablist" aria-label="تصنيف المهام">
+      <div class="tabs" role="tablist" aria-label="${REBUILT.t("tasks.task_categories")}">
         ${TABS.map((t) => `
           <button type="button" role="tab" class="tab ${ui.tab === t.id ? "is-active" : ""}" aria-selected="${ui.tab === t.id}" data-tab="${t.id}">
             ${t.label}<span class="tab__count num">${counts[t.id]}</span>
@@ -89,13 +89,13 @@ REBUILT.Pages.tasks = (function () {
       </div>
 
       <div class="filter-bar">
-        <div class="chip-row" role="group" aria-label="فلتر الأولوية">
+        <div class="chip-row" role="group" aria-label="${REBUILT.t("tasks.priority_filter")}">
           ${FILTERS.map((f) => `<button type="button" class="chip ${ui.filter === f.id ? "is-selected" : ""}" aria-pressed="${ui.filter === f.id}" data-filter="${f.id}">${f.label}</button>`).join("")}
         </div>
         <label class="filter-bar__sort">
-          <span class="visually-hidden">ترتيب المهام</span>
+          <span class="visually-hidden">${REBUILT.t("tasks.sort_tasks")}</span>
           <select class="field__input" id="task-sort">
-            ${SORTS.map((s) => `<option value="${s.id}" ${ui.sort === s.id ? "selected" : ""}>ترتيب: ${s.label}</option>`).join("")}
+            ${SORTS.map((s) => `<option value="${s.id}" ${ui.sort === s.id ? "selected" : ""}>${REBUILT.t("tasks.sorted_by", { label: s.label })}</option>`).join("")}
           </select>
         </label>
       </div>
@@ -104,7 +104,7 @@ REBUILT.Pages.tasks = (function () {
         <div class="row-list">
           ${list.length
             ? list.map(Components.taskRow).join("")
-            : Components.emptyState({ compact: true, icon: EMPTY[ui.tab].icon, text: ui.filter !== "all" ? "مفيش مهام بالأولوية دي هنا." : EMPTY[ui.tab].text })}
+            : Components.emptyState({ compact: true, icon: EMPTY[ui.tab].icon, text: ui.filter !== "all" ? REBUILT.t("tasks.no_tasks_with_this_priority") : EMPTY[ui.tab].text })}
         </div>
       </section>
     `;
@@ -135,29 +135,29 @@ REBUILT.Pages.tasks = (function () {
 
     const body = `
       <form class="form" id="task-form" novalidate>
-        ${Components.inputField({ name: "title", label: "اسم المهمة", value: editing ? editing.title : "", maxlength: 80, placeholder: "مثلاً: تجهيز العرض", autofocus: !editing })}
-        ${Components.inputField({ name: "description", label: "وصف", value: editing ? editing.description || "" : "", optional: true, maxlength: 200, placeholder: "تفاصيل إضافية" })}
+        ${Components.inputField({ name: "title", label: REBUILT.t("tasks.task_name"), value: editing ? editing.title : "", maxlength: 80, placeholder: REBUILT.t("tasks.e_g_prepare_the_presentation"), autofocus: !editing })}
+        ${Components.inputField({ name: "description", label: REBUILT.t("tasks.description"), value: editing ? editing.description || "" : "", optional: true, maxlength: 200, placeholder: REBUILT.t("tasks.extra_details") })}
 
         <div class="field">
-          <span class="field__label">الأولوية</span>
+          <span class="field__label">${REBUILT.t("tasks.priority")}</span>
           ${Components.segmented("priority", PRIORITIES, editing ? editing.priority : "medium")}
         </div>
 
         <div class="field-row">
-          ${Components.inputField({ name: "date", label: "التاريخ", type: "date", value: editing ? editing.date || "" : Data.todayISO(0), optional: true })}
-          ${Components.inputField({ name: "time", label: "الوقت", type: "time", value: editing && editing.time ? editing.time : "", optional: true })}
+          ${Components.inputField({ name: "date", label: REBUILT.t("tasks.date"), type: "date", value: editing ? editing.date || "" : Data.todayISO(0), optional: true })}
+          ${Components.inputField({ name: "time", label: REBUILT.t("tasks.time"), type: "time", value: editing && editing.time ? editing.time : "", optional: true })}
         </div>
 
-        ${Components.inputField({ name: "xp", label: "مكافأة XP", type: "number", value: editing ? editing.xp : 25, min: 5, max: 100, step: 5, inputmode: "numeric" })}
+        ${Components.inputField({ name: "xp", label: REBUILT.t("tasks.xp_reward"), type: "number", value: editing ? editing.xp : 25, min: 5, max: 100, step: 5, inputmode: "numeric" })}
 
         <div class="modal__footer">
-          <button type="submit" class="btn btn--primary">${editing ? "حفظ التعديلات" : "إضافة المهمة"}</button>
-          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-task" data-id="${esc(editing.id)}">${I.svg("trash")}حذف</button>` : ""}
+          <button type="submit" class="btn btn--primary">${editing ? REBUILT.t("tasks.save_changes") : REBUILT.t("tasks.add_task_2")}</button>
+          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-task" data-id="${esc(editing.id)}">${REBUILT.t("tasks.delete", { p1: I.svg("trash") })}</button>` : ""}
         </div>
       </form>`;
 
     REBUILT.Modal.open({
-      title: editing ? "تعديل المهمة" : "مهمة جديدة",
+      title: editing ? REBUILT.t("tasks.edit_task") : REBUILT.t("tasks.new_task_2"),
       body,
       onMount: (modal) => {
         const form = modal.querySelector("#task-form");
@@ -168,10 +168,10 @@ REBUILT.Pages.tasks = (function () {
           e.preventDefault();
           const fd = new FormData(form);
           const title = (fd.get("title") || "").toString().trim();
-          if (!title) return Components.setFieldError(modal, "title", "اكتب اسم للمهمة.");
+          if (!title) return Components.setFieldError(modal, "title", REBUILT.t("tasks.enter_a_name_for_the"));
           if (fd.get("time") && !fd.get("date")) {
             // A time without a day can't be scheduled anywhere — say so instead of silently dropping it.
-            return Components.setFieldError(modal, "date", "اختار تاريخ علشان الوقت يتحسب.");
+            return Components.setFieldError(modal, "date", REBUILT.t("tasks.pick_a_date_so_the"));
           }
           const payload = {
             title,

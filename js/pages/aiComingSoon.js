@@ -50,10 +50,10 @@ REBUILT.Pages = REBUILT.Pages || {};
 
         <section class="card ai-soon">
           <div class="ai-soon__content">
-            <span class="ai-soon__badge"><span class="ai-soon__dot"></span>قريبًا</span>
-            <h2 class="ai-soon__heading">مساعدك الذكي قريبًا</h2>
-            <p class="ai-soon__text">مساعدك الذكي يتم تطويره حاليًا علشان يساعدك في تنظيم يومك، وتتابع أهدافك، وتبني نظام حياة يناسبك.</p>
-            <button type="button" class="btn btn--primary ai-soon__cta" data-nav="dashboard">العودة إلى الرئيسية</button>
+            <span class="ai-soon__badge"><span class="ai-soon__dot"></span>${REBUILT.t("ai.soon")}</span>
+            <h2 class="ai-soon__heading">${REBUILT.t("ai.your_smart_assistant_is_coming")}</h2>
+            <p class="ai-soon__text">${REBUILT.t("ai.your_smart_assistant_is_being")}</p>
+            <button type="button" class="btn btn--primary ai-soon__cta" data-nav="dashboard">${REBUILT.t("ai.back_to_home")}</button>
           </div>
           <div class="ai-soon__visual">${VISUAL}</div>
         </section>

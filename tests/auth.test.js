@@ -81,6 +81,7 @@ function loadAuth(location, client, extras) {
   sandbox.history = (extras && extras.history) || { replaceState() {} };
   sandbox.location = sandbox.window.location;
   vm.createContext(sandbox);
+  require("./_i18n-env").installI18n(sandbox); // REBUILT.t() and the dictionaries, as in the browser
   vm.runInContext(fs.readFileSync(path.join(ROOT, "js/auth.js"), "utf8"), sandbox, { filename: "js/auth.js" });
   if (client) sandbox.REBUILT.SupabaseClient = { isAvailable: () => true, get: () => client, CONFIG: extras && extras.config };
   return sandbox.REBUILT.Auth;
@@ -588,7 +589,10 @@ test("the Google button uses the official four-colour G and the required wording
   const icons = fs.readFileSync(path.join(ROOT, "js/icons.js"), "utf8");
   ["#EA4335", "#4285F4", "#FBBC05", "#34A853"].forEach((c) => assert.ok(icons.includes(c), "missing " + c));
   const gate = fs.readFileSync(path.join(ROOT, "js/gate.js"), "utf8");
-  assert.ok(gate.includes("المتابعة باستخدام Google"));
+  // the wording now lives in the Arabic dictionary (js/locales/ar/gate.js); the screen asks for it by key
+  const arGate = fs.readFileSync(path.join(ROOT, "js/locales/ar/gate.js"), "utf8");
+  assert.ok(arGate.includes('"continue_with_google": "المتابعة باستخدام Google"'));
+  assert.ok(gate.includes('REBUILT.t("gate.continue_with_google")'));
 });
 
 test("parseAuthReturn: every shape of address is read as what it is", () => {
@@ -798,7 +802,7 @@ test("sign-up starts the \"send again\" wait; a refused sign-in for an unconfirm
 test("the screens: exact success wording, a resend button on every screen that needs one, link checked before the saved data loads", () => {
   const gate = fs.readFileSync(path.join(ROOT, "js/gate.js"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "js/app.js"), "utf8");
-  assert.ok(gate.includes("تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول دلوقتي."));
+  assert.ok(fs.readFileSync(path.join(ROOT, "js/locales/ar/gate.js"), "utf8").includes('"your_email_was_confirmed_successfully": "تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول دلوقتي."'));
   assert.ok(/id="resend-confirm-btn"/.test(gate) && /id="inline-resend"/.test(gate), "inbox screen, expired-link screen and the sign-in notice each offer «ابعت رسالة التأكيد تاني»");
   assert.ok(/result\.kind === "not_confirmed"/.test(gate));
   const init = app.slice(app.indexOf("async function init()"));

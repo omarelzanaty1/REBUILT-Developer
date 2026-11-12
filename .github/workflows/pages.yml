@@ -44,6 +44,8 @@ jobs:
         run: node tests/dev-repo.test.js
       - name: Release-script tests (local throw-away repositories)
         run: node tests/release.test.js
+      - name: Unit tests — translations (every key in every language, no text left in the code)
+        run: node tests/i18n.test.js
 
   build:
     needs: test

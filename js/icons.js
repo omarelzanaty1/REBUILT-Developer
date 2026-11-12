@@ -107,16 +107,17 @@ REBUILT.Icons = (function () {
     globe: C(12, 12, 9) + '<path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>',
   };
 
-  /* Keys offered in the habit icon picker, with an Arabic label for a11y. */
-  const HABIT_ICONS = [
-    ["flame", "نار"], ["dumbbell", "تمرين"], ["book", "قراءة"], ["droplet", "مياه"],
-    ["moon", "نوم"], ["sun", "صباح"], ["heart", "صحة"], ["lightbulb", "تفكير"],
-    ["coffee", "استراحة"], ["pen", "كتابة"], ["music", "موسيقى"], ["code", "برمجة"],
-    ["briefcase", "شغل"], ["cap", "دراسة"], ["leaf", "طبيعة"], ["activity", "نشاط"],
-    ["apple", "أكل صحي"], ["wallet", "فلوس"], ["smile", "مزاج"], ["target", "هدف"],
-    ["bolt", "طاقة"], ["bike", "رياضة"], ["globe", "لغات"], ["star", "نجمة"],
+  /* Keys offered in the habit icon picker. The labels are translated when asked for (a11y), never at load time. */
+  const HABIT_ICON_LABELS = [
+    ["flame", "common.fire"], ["dumbbell", "common.workout"], ["book", "common.reading"], ["droplet", "common.water"],
+    ["moon", "common.sleep"], ["sun", "common.morning"], ["heart", "common.health"], ["lightbulb", "common.thinking"],
+    ["coffee", "common.break"], ["pen", "common.writing"], ["music", "common.music"], ["code", "common.coding"],
+    ["briefcase", "common.work"], ["cap", "common.study"], ["leaf", "common.nature"], ["activity", "common.activity"],
+    ["apple", "common.healthy_eating"], ["wallet", "common.money"], ["smile", "common.mood"], ["target", "common.goal"],
+    ["bolt", "common.energy"], ["bike", "common.sports"], ["globe", "common.languages"], ["star", "common.star"],
   ];
-  const HABIT_KEYS = HABIT_ICONS.map((p) => p[0]);
+  const habitIcons = () => HABIT_ICON_LABELS.map(([key, labelKey]) => [key, REBUILT.t(labelKey)]);
+  const HABIT_KEYS = HABIT_ICON_LABELS.map((p) => p[0]);
 
   /* Old data stored emoji in habit.icon — map the ones the previous
      picker offered to the closest icon so existing habits keep a sensible
@@ -143,11 +144,12 @@ REBUILT.Icons = (function () {
 
   function svg(name, opts) {
     const o = opts || {};
-    const body = SET[name] || SET.target;
+    const key = SET[name] ? name : "target";
+    const body = SET[key];
     const size = o.size ? `${o.size}` : "1em";
     const stroke = o.stroke || 1.75;
     const cls = o.cls ? ` ${o.cls}` : "";
-    return `<svg class="icon${cls}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
+    return `<svg class="icon${cls}" data-icon="${key}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`;
   }
 
   /** Google's official four-colour "G" (from their branding guidelines). Colours are part of the mark, so it ignores currentColor. */
@@ -162,7 +164,7 @@ REBUILT.Icons = (function () {
     has,
     resolve,
     names: () => Object.keys(SET),
-    HABIT_ICONS,
+    get HABIT_ICONS() { return habitIcons(); },
     HABIT_KEYS,
     fromLegacy: (v) => resolve(v),
     isEmojiLike: (v) => !!v && !has(v),

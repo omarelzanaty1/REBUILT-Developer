@@ -27,27 +27,27 @@ REBUILT.Gate = (function () {
   const TAG_STEPS = {
     "onboard-skills": {
       icon: "sparkles",
-      title: "إيه مهاراتك؟",
-      sub: "اختار اللي يناسبك، وتقدر تضيف غيرها. كله اختياري.",
+      get title() { return REBUILT.t("gate.what_are_your_skills"); },
+      get sub() { return REBUILT.t("gate.pick_what_fits_you_and"); },
       presets: () => REBUILT.Data.PRESET_SKILLS,
       key: "skills",
-      addPlaceholder: "ضيف مهارة تانية",
+      get addPlaceholder() { return REBUILT.t("gate.add_another_skill"); },
     },
     "onboard-hobbies": {
       icon: "heart",
-      title: "بتحب تعمل إيه في وقتك؟",
-      sub: "اختار حاجة أو أكتر. كله اختياري.",
+      get title() { return REBUILT.t("gate.what_do_you_like_doing"); },
+      get sub() { return REBUILT.t("gate.pick_one_or_more_all"); },
       presets: () => REBUILT.Data.PRESET_HOBBIES,
       key: "hobbies",
-      addPlaceholder: "ضيف اهتمام تاني",
+      get addPlaceholder() { return REBUILT.t("gate.add_another_interest"); },
     },
     "onboard-goals": {
       icon: "target",
-      title: "إيه أهم حاجة عايز تحققها الفترة الجاية؟",
-      sub: "كل اختيار هيبقى هدف في REBUILT، وتقدر تقسّمه لخطوات وتتابع تقدّمه.",
+      get title() { return REBUILT.t("gate.what_s_the_most_important"); },
+      get sub() { return REBUILT.t("gate.each_choice_becomes_a_goal"); },
       presets: () => REBUILT.Data.PRESET_GOALS,
       key: "goals",
-      addPlaceholder: "ضيف هدفك الخاص",
+      get addPlaceholder() { return REBUILT.t("gate.add_your_own_goal"); },
     },
   };
   /** Wait before another recovery code may be requested (matches Supabase's one e-mail per address per minute). */
@@ -57,7 +57,7 @@ REBUILT.Gate = (function () {
   let pendingNotice = ""; // a message to show on the sign-in screen once (e.g. Google was cancelled)
   let pendingTone = "danger";
   let emailProblem = null; // why the confirmation link did not work (from Auth.consumeEmailLink)
-  const CONFIRMED_TEXT = "تم تأكيد بريدك الإلكتروني بنجاح، تقدر تسجّل الدخول دلوقتي.";
+  const confirmedText = () => REBUILT.t("gate.your_email_was_confirmed_successfully");
   let googleLeaving = false; // the browser is on its way to Google: ignore further clicks for a moment
 
   /* ---------------- Entry ---------------- */
@@ -80,7 +80,7 @@ REBUILT.Gate = (function () {
         authMode = "signin";
         step = "auth";
         form.email = link.email || form.email;
-        pendingNotice = CONFIRMED_TEXT;
+        pendingNotice = confirmedText();
         pendingTone = "success";
         setAppHidden(true);
         return render();
@@ -144,6 +144,7 @@ REBUILT.Gate = (function () {
 
   function finishGate() {
     clearInterval(cooldownTimer);
+    shownBackendError = null;
     const g = root();
     g.innerHTML = "";
     setAppHidden(false);
@@ -168,30 +169,35 @@ REBUILT.Gate = (function () {
   /* ---------------- The blocking error screen (strict mode) ---------------- */
 
   // What the person is told, by kind of failure (see SupabaseClient.classify). The technical line (tables, code) is shown under it.
-  const BACKEND_TEXT = {
-    network: ["مفيش اتصال بالسيرفر", "مقدرناش نوصل لسيرفر REBUILT. اتأكد من الإنترنت وجرّب تاني. مش هنعرضلك بيانات قديمة من المتصفح، عشان متشوفش حاجة مش حقيقية."],
-    unavailable: ["السيرفر مش متاح", "مكتبة الاتصال بالسيرفر ما اتحمّلتش (إنترنت ضعيف أو حاجب بيمنعها). النسخة دي لازم تشتغل على السيرفر، فمش هندخلك بوضع محلي على المتصفح."],
-    permission: ["السيرفر رفض الطلب", "حسابك مالوش صلاحية على جزء من البيانات (إعدادات الأمان على السيرفر). ده خطأ في الإعداد مش في حسابك، وإعادة المحاولة لوحدها مش هتحلّه."],
-    missing_table: ["قاعدة البيانات مش جاهزة", "جدول أو عمود مطلوب مش موجود في مشروع السيرفر ده. لازم قاعدة البيانات تتجهّز أو تتحدّث قبل ما التطبيق يشتغل."],
-    server: ["السيرفر فيه مشكلة", "السيرفر ردّ بخطأ من عنده. غالبًا مؤقت، جرّب تاني بعد شوية."],
-    profile_missing: ["ملف حسابك مش موجود", "حسابك موجود لكن صف الملف الشخصي بتاعه مش على السيرفر. ده خلل في إعداد قاعدة البيانات."],
-    incomplete: ["البيانات وصلت ناقصة", "السيرفر رجّع جزء من بياناتك بس، فمش هنعرضها عشان متشوفش أرقام ناقصة. جرّب تاني."],
-    unknown: ["مقدرناش نحمّل بياناتك", "حصل خطأ غير متوقع وإحنا بنقرأ بياناتك من السيرفر. جرّب تاني."],
-  };
+  const backendText = () => ({
+    network: [REBUILT.t("gate.no_connection_to_the_server"), REBUILT.t("gate.we_couldn_t_reach_the")],
+    unavailable: [REBUILT.t("gate.server_unavailable"), REBUILT.t("gate.the_server_connection_library_didn")],
+    permission: [REBUILT.t("gate.the_server_refused_the_request"), REBUILT.t("gate.your_account_doesn_t_have")],
+    missing_table: [REBUILT.t("gate.the_database_isn_t_ready"), REBUILT.t("gate.a_required_table_or_column")],
+    server: [REBUILT.t("gate.the_server_has_a_problem"), REBUILT.t("gate.the_server_replied_with_an")],
+    profile_missing: [REBUILT.t("gate.your_account_profile_is_missing"), REBUILT.t("gate.your_account_exists_but_its")],
+    incomplete: [REBUILT.t("gate.your_data_arrived_incomplete"), REBUILT.t("gate.the_server_only_returned_part")],
+    unknown: [REBUILT.t("gate.we_couldn_t_load_your"), REBUILT.t("gate.an_unexpected_error_happened_while")],
+  });
 
   /**
    * Strict mode: a configured backend that cannot be read stops the app here — never a silent fall-back to the browser copy.
    * `opts.retry` runs again whatever failed; `opts.signOut` (optional) leaves the account. The app behind stays hidden.
    */
+  let drawnLang = REBUILT.I18n.lang(); // the language the screen on show was drawn in
+  let shownBackendError = null; // { err, opts } while the blocking error screen is up, so a language change can redraw it
+
   function showBackendError(err, opts) {
     opts = opts || {};
+    shownBackendError = { err, opts };
     const SC = REBUILT.SupabaseClient;
     const e = err && err.kind && err.name === "BackendError" ? err : SC.toBackendError(err, {});
-    const text = BACKEND_TEXT[e.kind] || BACKEND_TEXT.unknown;
+    const texts = backendText();
+    const text = texts[e.kind] || texts.unknown;
     const tables = (e.tables && e.tables.length ? e.tables : e.table ? [e.table] : []).slice();
     const tech = []
-      .concat(tables.length ? ["الجداول: " + tables.join("، ")] : [])
-      .concat(e.code ? ["الكود: " + e.code] : [])
+      .concat(tables.length ? [REBUILT.t("gate.tables") + tables.join(REBUILT.t("gate.text"))] : [])
+      .concat(e.code ? [REBUILT.t("gate.code") + e.code] : [])
       .concat(e.message && e.message !== e.kind ? [e.message] : []);
     clearInterval(cooldownTimer);
     const g = root();
@@ -201,23 +207,24 @@ REBUILT.Gate = (function () {
         <h1 class="gate__title">${esc(text[0])}</h1>
         <p class="gate__sub">${esc(text[1])}</p>
         ${tech.length ? `<p class="gate__tech" dir="auto">${tech.map((t) => esc(t)).join("<br/>")}</p>` : ""}
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-be="retry">جرّب تاني</button>
-        ${opts.signOut && e.kind !== "unavailable" ? `<button type="button" class="btn btn--ghost btn--block" data-be="signout">تسجيل الخروج</button>` : ""}
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-be="retry">${REBUILT.t("gate.try_again")}</button>
+        ${opts.signOut && e.kind !== "unavailable" ? `<button type="button" class="btn btn--ghost btn--block" data-be="signout">${REBUILT.t("gate.sign_out")}</button>` : ""}
       </div>
     `);
     setAppHidden(true);
     g.scrollTop = 0;
+    REBUILT.Components.bindPrefSwitch(g);
     const retry = g.querySelector('[data-be="retry"]');
     if (retry) {
       retry.addEventListener("click", async () => {
         retry.disabled = true;
-        retry.textContent = "بنحاول…";
+        retry.textContent = REBUILT.t("gate.trying");
         try {
           await (opts.retry ? opts.retry() : window.location.reload());
         } catch (x) {
           console.warn("REBUILT: retry failed", x);
         }
-        if (document.getElementById("backend-error") && retry.isConnected) { retry.disabled = false; retry.textContent = "جرّب تاني"; }
+        if (document.getElementById("backend-error") && retry.isConnected) { retry.disabled = false; retry.textContent = REBUILT.t("gate.try_again"); }
       });
       retry.focus({ preventScroll: true });
     }
@@ -228,19 +235,57 @@ REBUILT.Gate = (function () {
   /** Take the error screen away and show the app again (after a retry that worked). */
   function clearBackendError() {
     if (!document.getElementById("backend-error")) return;
+    shownBackendError = null;
     root().innerHTML = "";
     setAppHidden(false);
   }
 
   /* ---------------- Rendering ---------------- */
 
+  /**
+   * The language or theme changed while a gate screen is open: draw the same screen again in the new language,
+   * keeping what was typed (fields are put back by id) and where the person was. Notices are dropped: they were
+   * written in the old language and the action that produced them is not repeated.
+   */
+  function rerender() {
+    const g = root();
+    if (!g || g.hidden || !g.firstElementChild) return;
+    if (shownBackendError) return showBackendError(shownBackendError.err, shownBackendError.opts);
+    if (!step) return;
+    const typed = {};
+    g.querySelectorAll("input[id], textarea[id], select[id]").forEach((el) => {
+      typed[el.id] = el.type === "checkbox" || el.type === "radio" ? el.checked : el.value;
+    });
+    const focusId = document.activeElement && g.contains(document.activeElement) ? document.activeElement.id : "";
+    const y = g.scrollTop;
+    const to = REBUILT.I18n.lang();
+    if (drawnLang !== to && draft) {
+      // preset chips picked so far follow the language (what was typed stays as typed)
+      ["skills", "hobbies", "goals"].forEach((k) => {
+        if (Array.isArray(draft[k])) draft[k] = draft[k].map((v) => REBUILT.Data.convertPreset(k, v, drawnLang, to));
+      });
+    }
+    render();
+    Object.keys(typed).forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el || !g.contains(el)) return;
+      if (el.type === "checkbox" || el.type === "radio") el.checked = typed[id];
+      else if (typeof typed[id] === "string" && !el.value) el.value = typed[id];
+    });
+    if (focusId) { const el = document.getElementById(focusId); if (el) el.focus({ preventScroll: true }); }
+    g.scrollTop = y;
+  }
+
   function render() {
     clearInterval(cooldownTimer);
     const g = root();
     g.hidden = false;
     g.innerHTML = stepHTML();
+    drawnLang = REBUILT.I18n.lang();
+    shownBackendError = null;
     g.scrollTop = 0;
     window.scrollTo(0, 0);
+    REBUILT.Components.bindPrefSwitch(g);
     bindStep();
     const first = qs("[data-autofocus]");
     if (first && !window.matchMedia("(pointer: coarse)").matches) first.focus({ preventScroll: true });
@@ -269,18 +314,18 @@ REBUILT.Gate = (function () {
 
   /* ---------- Shared layout ---------- */
 
-  const BENEFITS = [
-    ["flame", "عادات يومية", "كل يوم تلتزم فيه بيزوّد سلسلتك."],
-    ["tasks", "مهام منظّمة", "أولوية وموعد لكل مهمة، وXP على كل إنجاز."],
-    ["target", "أهداف بخطوات", "قسّم هدفك وتابع تقدّمك بالنسبة المئوية."],
-    ["trophy", "مستويات وإنجازات", "تقدّمك الحقيقي بيتحوّل لمستويات تشوفها."],
+  const benefits = () => [
+    ["flame", REBUILT.t("gate.daily_habits"), REBUILT.t("gate.every_day_you_stick_to")],
+    ["tasks", REBUILT.t("gate.organized_tasks"), REBUILT.t("gate.a_priority_and_a_time")],
+    ["target", REBUILT.t("gate.goals_with_steps"), REBUILT.t("gate.break_your_goal_down_and")],
+    ["trophy", REBUILT.t("gate.levels_and_achievements"), REBUILT.t("gate.your_real_progress_turns_into")],
   ];
 
   /** Two-pane frame used by every auth / recovery / onboarding step. */
   function frame(inner, opts) {
     opts = opts || {};
     const back = opts.back
-      ? `<button type="button" class="btn btn--ghost btn--sm gate__back" data-go="${opts.back}">${I().svg("arrowRight")}${opts.backLabel || "رجوع"}</button>`
+      ? `<button type="button" class="btn btn--ghost btn--sm gate__back" data-go="${opts.back}">${I().svg("arrowRight")}${opts.backLabel || REBUILT.t("gate.back")}</button>`
       : "<span></span>";
     return `
       <div class="gate">
@@ -288,9 +333,9 @@ REBUILT.Gate = (function () {
           ${REBUILT.Brand.lockup("gate__lockup")}
           <div class="gate__pitch">
             <p class="gate__tag" dir="ltr">Plan. Do. Improve. Repeat.</p>
-            <h2 class="gate__headline">ابنِ نفسك،<br/>خطوة ورا خطوة.</h2>
+            <h2 class="gate__headline">${REBUILT.t("gate.build_yourself")}<br/>${REBUILT.t("gate.step_by_step")}</h2>
             <ul class="gate__benefits">
-              ${BENEFITS.map((b) => `<li><span class="gate__benefit-ico">${I().svg(b[0])}</span><span><strong>${b[1]}</strong><small>${b[2]}</small></span></li>`).join("")}
+              ${benefits().map((b) => `<li><span class="gate__benefit-ico">${I().svg(b[0])}</span><span><strong>${b[1]}</strong><small>${b[2]}</small></span></li>`).join("")}
             </ul>
           </div>
           ${REBUILT.Brand.stair("gate__stair")}
@@ -299,6 +344,7 @@ REBUILT.Gate = (function () {
           <div class="gate__top">
             ${back}
             ${REBUILT.Brand.lockup("gate__lockup-sm")}
+            ${REBUILT.Components.prefSwitch()}
           </div>
           <div class="gate__card ${opts.cls || ""}">${inner}</div>
         </main>
@@ -311,7 +357,7 @@ REBUILT.Gate = (function () {
     return `
       <div class="notice notice--warn" role="note">
         ${I().svg("info")}
-        <div>وضع محلي: مفيش اتصال بسيرفر REBUILT دلوقتي، فبياناتك بتتخزن على المتصفح ده بس.${reason ? `<br/><span class="faint">السبب: ${esc(reason)}</span>` : ""}</div>
+        <div>${REBUILT.t("gate.local_mode_there_s_no", { p1: reason ? `<br/><span class="faint">${REBUILT.t("gate.reason", { p1: esc(reason) })}</span>` : "" })}</div>
       </div>`;
   }
 
@@ -325,9 +371,9 @@ REBUILT.Gate = (function () {
         ${o.autofocus ? "data-autofocus" : ""} aria-describedby="${id}-err${o.hint ? " " + id + "-hint" : ""}" autocapitalize="${o.type === "email" || o.type === "password" ? "none" : "sentences"}" spellcheck="false" />`;
     return `
       <div class="field" data-field="${o.name}">
-        <label class="field__label" for="${id}">${o.label}${o.optional ? `<span class="optional">اختياري</span>` : ""}</label>
+        <label class="field__label" for="${id}">${o.label}${o.optional ? `<span class="optional">${REBUILT.t("gate.optional")}</span>` : ""}</label>
         ${isPw
-          ? `<div class="input-affix">${input}<button type="button" class="input-affix__btn" data-toggle-pw="${id}" aria-label="إظهار الباسورد" aria-pressed="false">${I().svg("eye")}</button></div>`
+          ? `<div class="input-affix">${input}<button type="button" class="input-affix__btn" data-toggle-pw="${id}" aria-label="${REBUILT.t("gate.show_password")}" aria-pressed="false">${I().svg("eye")}</button></div>`
           : input}
         ${o.hint ? `<span class="field__hint" id="${id}-hint">${o.hint}</span>` : ""}
         <span class="field__error" id="${id}-err" role="alert">${I().svg("alert", { size: 14 })}<span data-err-text></span></span>
@@ -389,7 +435,7 @@ REBUILT.Gate = (function () {
   const liveButton = (btn) => (btn && btn.isConnected ? btn : btn && btn.id ? document.getElementById(btn.id) : null);
   const holdSecondsLeft = (key) => Math.ceil(((holdUntil[key] || 0) - Date.now()) / 1000);
   /** Minutes for long waits (the hourly cap), plain seconds otherwise. */
-  const fmtWait = (secs) => (secs >= 120 ? Math.ceil(secs / 60) + " د" : String(secs));
+  const fmtWait = (secs) => (secs >= 120 ? Math.ceil(secs / 60) + REBUILT.t("gate.min") : String(secs));
 
   /** Run `work` unless the same action is already running. Resolves { skipped: true } for a duplicate. */
   async function runOnce(key, btn, work) {
@@ -443,26 +489,29 @@ REBUILT.Gate = (function () {
 
   function welcomeHTML() {
     const features = [
-      ["flame", "عادات", "ابنِ روتين يومي وشوف سلسلة أيامك بتكبر."],
-      ["tasks", "مهام", "رتّب شغلك بالأولوية والموعد، وخلّص بدون لخبطة."],
-      ["target", "أهداف", "قسّم هدفك الكبير لخطوات وتابع نسبة إنجازه."],
-      ["chart", "تقدّمك", "إحصائيات حقيقية من نشاطك، ومستويات وإنجازات."],
+      ["flame", REBUILT.t("gate.habits"), REBUILT.t("gate.build_a_daily_routine_and")],
+      ["tasks", REBUILT.t("gate.tasks"), REBUILT.t("gate.organize_your_work_by_priority")],
+      ["target", REBUILT.t("gate.goals"), REBUILT.t("gate.break_your_big_goal_into")],
+      ["chart", REBUILT.t("gate.your_progress"), REBUILT.t("gate.real_stats_from_your_activity")],
     ];
     return `
       <div class="landing">
         <header class="landing__bar">
           ${REBUILT.Brand.lockup("landing__logo")}
-          <button type="button" class="btn btn--secondary btn--sm" data-go="signin">تسجيل الدخول</button>
+          <div class="landing__bar-end">
+            ${REBUILT.Components.prefSwitch()}
+            <button type="button" class="btn btn--secondary btn--sm" data-go="signin">${REBUILT.t("gate.sign_in")}</button>
+          </div>
         </header>
 
         <section class="landing__hero">
           <div class="landing__copy">
             <p class="landing__tag" dir="ltr">Plan. Do. Improve. Repeat.</p>
-            <h1 class="landing__title">ابنِ نفسك،<br/><span class="grad-text">يوم ورا يوم.</span></h1>
-            <p class="landing__lead">REBUILT بتجمع عاداتك ومهامك وأهدافك في مكان واحد، وبتحوّل كل خطوة لتقدّم تشوفه: XP ومستويات وسلاسل أيام.</p>
+            <h1 class="landing__title">${REBUILT.t("gate.build_yourself")}<br/><span class="grad-text">${REBUILT.t("gate.day_by_day")}</span></h1>
+            <p class="landing__lead">${REBUILT.t("gate.rebuilt_brings_your_habits_tasks")}</p>
             <div class="landing__cta">
-              <button type="button" class="btn btn--primary btn--lg" data-go="signup" data-autofocus>ابدأ دلوقتي ${I().svg("arrowLeft")}</button>
-              <button type="button" class="btn btn--secondary btn--lg" data-go="signin">عندي حساب</button>
+              <button type="button" class="btn btn--primary btn--lg" data-go="signup" data-autofocus>${REBUILT.t("gate.get_started", { p1: I().svg("arrowLeft") })}</button>
+              <button type="button" class="btn btn--secondary btn--lg" data-go="signin">${REBUILT.t("gate.i_already_have_an_account")}</button>
             </div>
             ${REBUILT.Auth.isRealAuth() ? "" : `<div class="landing__mode">${modeNotice()}</div>`}
           </div>
@@ -471,22 +520,22 @@ REBUILT.Gate = (function () {
             ${REBUILT.Brand.stair("landing__stair")}
             <div class="lv-card lv-card--habit">
               <span class="lv-card__ico">${I().svg("book")}</span>
-              <span class="lv-card__text"><strong>قراءة 20 دقيقة</strong><small>عادة يومية</small></span>
+              <span class="lv-card__text"><strong>${REBUILT.t("gate.read_for_20_minutes")}</strong><small>${REBUILT.t("gate.daily_habit")}</small></span>
               <span class="lv-card__check">${I().svg("check", { size: 14, stroke: 2.8 })}</span>
             </div>
             <div class="lv-card lv-card--goal">
-              <span class="lv-card__text"><strong>هدف: 12 كتاب</strong>
+              <span class="lv-card__text"><strong>${REBUILT.t("gate.goal_12_books")}</strong>
                 <span class="progress progress--sm"><span class="progress__fill" style="width:58%"></span></span>
               </span>
             </div>
             <div class="lv-card lv-card--streak">
               <span class="lv-card__ico lv-card__ico--hot">${I().svg("flame")}</span>
-              <span class="lv-card__text"><strong>سلسلة أيام</strong><small>كمّل ومتقطعهاش</small></span>
+              <span class="lv-card__text"><strong>${REBUILT.t("gate.day_streak")}</strong><small>${REBUILT.t("gate.keep_it_going_don_t")}</small></span>
             </div>
           </div>
         </section>
 
-        <section class="landing__features" aria-label="مميزات REBUILT">
+        <section class="landing__features" aria-label="${REBUILT.t("gate.rebuilt_features")}">
           ${features.map((f) => `
             <article class="feature">
               <span class="feature__ico">${I().svg(f[0], { size: 22 })}</span>
@@ -506,32 +555,32 @@ REBUILT.Gate = (function () {
   function authHTML() {
     const isSignup = authMode === "signup";
     return frame(`
-      <div class="segmented gate__tabs" role="tablist" aria-label="نوع الدخول">
-        <button type="button" role="tab" class="segmented__btn ${isSignup ? "is-selected" : ""}" aria-selected="${isSignup}" data-authmode="signup">إنشاء حساب</button>
-        <button type="button" role="tab" class="segmented__btn ${!isSignup ? "is-selected" : ""}" aria-selected="${!isSignup}" data-authmode="signin">تسجيل الدخول</button>
+      <div class="segmented gate__tabs" role="tablist" aria-label="${REBUILT.t("gate.sign_in_type")}">
+        <button type="button" role="tab" class="segmented__btn ${isSignup ? "is-selected" : ""}" aria-selected="${isSignup}" data-authmode="signup">${REBUILT.t("gate.create_account_2")}</button>
+        <button type="button" role="tab" class="segmented__btn ${!isSignup ? "is-selected" : ""}" aria-selected="${!isSignup}" data-authmode="signin">${REBUILT.t("gate.sign_in")}</button>
       </div>
 
-      <h1 class="gate__title">${isSignup ? "ابدأ رحلتك مع REBUILT" : "أهلاً بيك تاني"}</h1>
-      <p class="gate__sub">${isSignup ? "حساب واحد وبياناتك معاك في أي مكان." : "سجّل دخولك وكمّل من حيث وقفت."}</p>
+      <h1 class="gate__title">${isSignup ? REBUILT.t("gate.start_your_journey_with_rebuilt") : REBUILT.t("gate.welcome_back")}</h1>
+      <p class="gate__sub">${isSignup ? REBUILT.t("gate.one_account_and_your_data") : REBUILT.t("gate.sign_in_and_pick_up")}</p>
       ${googleBlock()}
 
       <form class="gate__form" id="auth-form" novalidate>
         ${noticeSlot()}
-        ${isSignup ? field({ name: "name", label: "الاسم", autocomplete: "name", value: form.name, autofocus: true, maxlength: 40 }) : ""}
-        ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: !isSignup })}
-        ${field({ name: "password", type: "password", label: "الباسورد", autocomplete: isSignup ? "new-password" : "current-password", hint: isSignup ? `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل. كل ما كان أطول كان أأمن.` : "" })}
+        ${isSignup ? field({ name: "name", label: REBUILT.t("gate.name"), autocomplete: "name", value: form.name, autofocus: true, maxlength: 40 }) : ""}
+        ${field({ name: "email", type: "email", label: REBUILT.t("gate.email"), autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: !isSignup })}
+        ${field({ name: "password", type: "password", label: REBUILT.t("gate.password"), autocomplete: isSignup ? "new-password" : "current-password", hint: isSignup ? REBUILT.t("gate.at_least_characters_the_longer", { MIN_PASSWORD_LENGTH: REBUILT.Auth.MIN_PASSWORD_LENGTH }) : "" })}
         ${isSignup ? strengthMeter() : ""}
-        ${isSignup ? field({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد", autocomplete: "new-password" }) : ""}
-        ${!isSignup ? `<div class="gate__row"><button type="button" class="btn-link" data-go="forgot">نسيت الباسورد؟</button></div>` : ""}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="auth-submit"><span>${isSignup ? "إنشاء الحساب" : "دخول"}</span></button>
+        ${isSignup ? field({ name: "confirmPassword", type: "password", label: REBUILT.t("gate.confirm_password"), autocomplete: "new-password" }) : ""}
+        ${!isSignup ? `<div class="gate__row"><button type="button" class="btn-link" data-go="forgot">${REBUILT.t("gate.forgot_your_password")}</button></div>` : ""}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="auth-submit"><span>${isSignup ? REBUILT.t("gate.create_account") : REBUILT.t("gate.sign_in_2")}</span></button>
         ${REBUILT.Auth.isRealAuth()
-          ? `<p class="gate__fine">${I().svg("shield", { size: 15 })}<span>${isSignup ? "حسابك محفوظ على سيرفر REBUILT، وهتوصلك رسالة تأكيد على إيميلك." : "اتصالك بالسيرفر مؤمّن، وبياناتك ليك بس."}</span></p>`
+          ? `<p class="gate__fine">${I().svg("shield", { size: 15 })}<span>${isSignup ? REBUILT.t("gate.your_account_is_saved_on") : REBUILT.t("gate.your_connection_to_the_server")}</span></p>`
           : modeNotice()}
       </form>
 
       <p class="gate__switch">${isSignup
-        ? `عندك حساب؟ <button type="button" class="btn-link" data-authmode="signin">سجّل دخولك</button>`
-        : `لسه معندكش حساب؟ <button type="button" class="btn-link" data-authmode="signup">ابدأ دلوقتي</button>`}</p>
+        ? `${REBUILT.t("gate.already_have_an_account")} <button type="button" class="btn-link" data-authmode="signin">${REBUILT.t("gate.sign_in_3")}</button>`
+        : `${REBUILT.t("gate.don_t_have_an_account")} <button type="button" class="btn-link" data-authmode="signup">${REBUILT.t("gate.get_started_2")}</button>`}</p>
     `, { back: "welcome" });
   }
 
@@ -540,8 +589,8 @@ REBUILT.Gate = (function () {
     if (!REBUILT.Auth.isRealAuth()) return "";
     return `
       <div class="gate__google">
-        <button type="button" class="btn btn--google btn--lg btn--block" id="google-btn">${I().googleG(20)}<span>المتابعة باستخدام Google</span></button>
-        <div class="gate__divider" role="separator"><span>أو بالإيميل</span></div>
+        <button type="button" class="btn btn--google btn--lg btn--block" id="google-btn">${I().googleG(20)}<span>${REBUILT.t("gate.continue_with_google")}</span></button>
+        <div class="gate__divider" role="separator"><span>${REBUILT.t("gate.or_with_email")}</span></div>
       </div>`;
   }
 
@@ -549,13 +598,13 @@ REBUILT.Gate = (function () {
     return frame(`
       <div class="gate__state">
         <span class="gate__state-ico">${I().svg("mail", { size: 30 })}</span>
-        <h1 class="gate__title">بص في إيميلك</h1>
-        <p class="gate__sub">بعتنا رسالة تأكيد على <bdi class="num-ltr">${esc(form.email)}</bdi>. افتحها واضغط على اللينك، وبعدها ارجع هنا وسجّل دخول.</p>
-        <p class="gate__fine gate__fine--center">لو مالقتهاش، بص في الـ Spam أو الـ Promotions. ولو الإيميل ده مسجّل قبل كده (بالباسورد أو بـ Google)، سجّل دخولك أو اضغط «نسيت الباسورد».</p>
+        <h1 class="gate__title">${REBUILT.t("gate.check_your_email")}</h1>
+        <p class="gate__sub">${REBUILT.t("gate.we_sent_a_confirmation_email")} <bdi class="num-ltr">${esc(form.email)}</bdi>${REBUILT.t("gate.open_it_and_tap_the")}</p>
+        <p class="gate__fine gate__fine--center">${REBUILT.t("gate.if_you_can_t_find")}</p>
         ${noticeSlot()}
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin-after-confirm">أكدت، يلا ندخل</button>
-        <button type="button" class="btn btn--secondary btn--block" id="resend-confirm-btn"><span>ابعت رسالة التأكيد تاني</span></button>
-        <button type="button" class="btn btn--ghost btn--block" data-go="signup">استخدم إيميل تاني</button>
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin-after-confirm">${REBUILT.t("gate.i_confirmed_let_s_go")}</button>
+        <button type="button" class="btn btn--secondary btn--block" id="resend-confirm-btn"><span>${REBUILT.t("gate.resend_the_confirmation_email")}</span></button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="signup">${REBUILT.t("gate.use_a_different_email")}</button>
       </div>
     `);
   }
@@ -567,29 +616,29 @@ REBUILT.Gate = (function () {
       return frame(`
         <div class="gate__state">
           <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
-          <h1 class="gate__title">التأكيد ما كملش</h1>
-          <p class="gate__sub">${esc(p.error || "مفيش اتصال بالنت دلوقتي.")} اللينك لسه ماتستخدمش، فجرّب تاني.</p>
+          <h1 class="gate__title">${REBUILT.t("gate.confirmation_didn_t_finish")}</h1>
+          <p class="gate__sub">${REBUILT.t("gate.the_link_hasn_t_been", { p1: esc(p.error || REBUILT.t("gate.no_internet_connection_right_now")) })}</p>
           ${noticeSlot()}
-          <button type="button" class="btn btn--primary btn--lg btn--block" id="confirm-retry" data-autofocus><span>جرّب تاني</span></button>
-          <button type="button" class="btn btn--ghost btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
+          <button type="button" class="btn btn--primary btn--lg btn--block" id="confirm-retry" data-autofocus><span>${REBUILT.t("gate.try_again")}</span></button>
+          <button type="button" class="btn btn--ghost btn--block" data-go="signin">${REBUILT.t("gate.back_to_sign_in")}</button>
         </div>
       `);
     }
     const sub = p.kind === "unconfirmed"
-      ? "مقدرناش نتأكد إن الإيميل اتأكد. اطلب رسالة تأكيد جديدة وافتح آخر رسالة توصلك."
-      : "اللينك ده اتستخدم قبل كده أو انتهت صلاحيته. لو أكدت إيميلك قبل كده، سجّل دخولك. لو لسه ماأكدتوش، اطلب رسالة تأكيد جديدة وافتح آخر رسالة توصلك. ولو كان لينك استعادة باسورد قديم، اطلب كود جديد.";
+      ? REBUILT.t("gate.we_couldn_t_verify_that")
+      : REBUILT.t("gate.this_link_was_already_used");
     return frame(`
       <div class="gate__state">
         <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
-        <h1 class="gate__title">اللينك مش شغال</h1>
+        <h1 class="gate__title">${REBUILT.t("gate.the_link_isn_t_working")}</h1>
         <p class="gate__sub">${sub}</p>
       </div>
       <form class="gate__form" id="resend-form" novalidate>
         ${noticeSlot()}
-        ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="resend-confirm-btn"><span>ابعت رسالة التأكيد تاني</span></button>
-        <button type="button" class="btn btn--secondary btn--block" data-go="forgot">اطلب كود جديد للباسورد</button>
-        <button type="button" class="btn btn--ghost btn--block" data-go="signin">سجّل دخولك</button>
+        ${field({ name: "email", type: "email", label: REBUILT.t("gate.email"), autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="resend-confirm-btn"><span>${REBUILT.t("gate.resend_the_confirmation_email")}</span></button>
+        <button type="button" class="btn btn--secondary btn--block" data-go="forgot">${REBUILT.t("gate.request_a_new_password_code")}</button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="signin">${REBUILT.t("gate.sign_in_3")}</button>
       </form>
     `);
   }
@@ -601,53 +650,53 @@ REBUILT.Gate = (function () {
       return frame(`
         <div class="gate__state">
           <span class="gate__state-ico gate__state-ico--warn">${I().svg("key", { size: 28 })}</span>
-          <h1 class="gate__title">استعادة الباسورد</h1>
-          <p class="gate__sub">استعادة الباسورد بتتم برسالة على الإيميل من سيرفر REBUILT، والسيرفر مش متاح دلوقتي. في الوضع المحلي مفيش باسورد على سيرفر أصلًا، فمفيش حاجة تتبعت.</p>
+          <h1 class="gate__title">${REBUILT.t("gate.reset_password")}</h1>
+          <p class="gate__sub">${REBUILT.t("gate.password_reset_works_through_an")}</p>
           ${modeNotice()}
-          <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
+          <button type="button" class="btn btn--primary btn--lg btn--block" data-go="signin">${REBUILT.t("gate.back_to_sign_in")}</button>
         </div>
       `, { back: "signin" });
     }
     return frame(`
       <span class="gate__state-ico gate__state-ico--left">${I().svg("key", { size: 26 })}</span>
-      <h1 class="gate__title">نسيت الباسورد؟</h1>
-      <p class="gate__sub">اكتب إيميلك وهنبعتلك كود تحقق تكتبه هنا في الموقع وتختار بيه باسورد جديد.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.forgot_your_password")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.enter_your_email_and_we")}</p>
       <form class="gate__form" id="forgot-form" novalidate>
         ${noticeSlot()}
-        ${field({ name: "email", type: "email", label: "الإيميل", autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="forgot-submit"><span>ابعتلي الكود</span></button>
+        ${field({ name: "email", type: "email", label: REBUILT.t("gate.email"), autocomplete: "email", value: form.email, ltr: true, inputmode: "email", autofocus: true })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="forgot-submit"><span>${REBUILT.t("gate.send_me_the_code")}</span></button>
       </form>
-    `, { back: "signin", backLabel: "رجوع لتسجيل الدخول" });
+    `, { back: "signin", backLabel: REBUILT.t("gate.back_to_sign_in") });
   }
 
   /** Step 2 of recovery: type the code that was e-mailed. The new-password screen only opens once Supabase accepts it. */
   function otpHTML() {
     return frame(`
       <span class="gate__state-ico gate__state-ico--left">${I().svg("mail", { size: 26 })}</span>
-      <h1 class="gate__title">اكتب الكود</h1>
-      <p class="gate__sub">لو <bdi class="num-ltr">${esc(form.email)}</bdi> مسجّل عندنا، هتوصلك رسالة فيها كود تحقق خلال دقايق. اكتبه هنا.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.enter_the_code")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.if")} <bdi class="num-ltr">${esc(form.email)}</bdi> ${REBUILT.t("gate.is_registered_with_us_you")}</p>
       <form class="gate__form" id="otp-form" novalidate>
         ${noticeSlot()}
-        ${field({ name: "code", label: "كود التحقق", autocomplete: "one-time-code", inputmode: "numeric", ltr: true, maxlength: 12, autofocus: true, hint: "أرقام بس. بص في الـ Spam أو الـ Promotions لو مالقتهوش. الكود بيشتغل مرة واحدة ولمدة قصيرة." })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="otp-submit"><span>تأكيد الكود</span></button>
-        <button type="button" class="btn btn--secondary btn--block" id="resend-btn" disabled>ابعت كود جديد <span class="num" data-cooldown></span></button>
+        ${field({ name: "code", label: REBUILT.t("gate.verification_code"), autocomplete: "one-time-code", inputmode: "numeric", ltr: true, maxlength: 12, autofocus: true, hint: REBUILT.t("gate.digits_only_check_spam_or") })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="otp-submit"><span>${REBUILT.t("gate.verify_code")}</span></button>
+        <button type="button" class="btn btn--secondary btn--block" id="resend-btn" disabled>${REBUILT.t("gate.send_a_new_code")} <span class="num" data-cooldown></span></button>
       </form>
-      <p class="gate__switch"><button type="button" class="btn-link" data-go="forgot">غيّر الإيميل</button></p>
-    `, { back: "forgot", backLabel: "رجوع" });
+      <p class="gate__switch"><button type="button" class="btn-link" data-go="forgot">${REBUILT.t("gate.change_email")}</button></p>
+    `, { back: "forgot", backLabel: REBUILT.t("gate.back") });
   }
 
   function resetHTML() {
     return frame(`
       <span class="gate__state-ico gate__state-ico--left">${I().svg("lock", { size: 26 })}</span>
-      <h1 class="gate__title">باسورد جديد</h1>
-      <p class="gate__sub">الكود اتأكد. اختار باسورد جديد لحسابك.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.new_password_2")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.code_verified_choose_a_new")}</p>
       <form class="gate__form" id="reset-form" novalidate>
         ${noticeSlot()}
-        ${field({ name: "password", type: "password", label: "الباسورد الجديد", autocomplete: "new-password", autofocus: true, hint: `${REBUILT.Auth.MIN_PASSWORD_LENGTH} حروف على الأقل.` })}
+        ${field({ name: "password", type: "password", label: REBUILT.t("gate.new_password"), autocomplete: "new-password", autofocus: true, hint: REBUILT.t("gate.at_least_characters", { MIN_PASSWORD_LENGTH: REBUILT.Auth.MIN_PASSWORD_LENGTH }) })}
         ${strengthMeter()}
-        ${field({ name: "confirmPassword", type: "password", label: "تأكيد الباسورد الجديد", autocomplete: "new-password" })}
-        <button type="submit" class="btn btn--primary btn--lg btn--block" id="reset-submit"><span>تغيير الباسورد</span></button>
-        <button type="button" class="btn btn--ghost btn--block" data-go="cancel-reset">إلغاء</button>
+        ${field({ name: "confirmPassword", type: "password", label: REBUILT.t("gate.confirm_new_password"), autocomplete: "new-password" })}
+        <button type="submit" class="btn btn--primary btn--lg btn--block" id="reset-submit"><span>${REBUILT.t("gate.change_password")}</span></button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="cancel-reset">${REBUILT.t("gate.cancel")}</button>
       </form>
     `);
   }
@@ -656,9 +705,9 @@ REBUILT.Gate = (function () {
     return frame(`
       <div class="gate__state">
         <span class="gate__state-ico gate__state-ico--ok">${I().svg("checkCircle", { size: 32 })}</span>
-        <h1 class="gate__title">اتغيّر الباسورد</h1>
-        <p class="gate__sub">تمام. باسوردك الجديد اشتغل، وتقدر تدخل بيه في أي وقت. إنت دلوقتي داخل حسابك.</p>
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="continue" data-autofocus>كمّل لـ REBUILT</button>
+        <h1 class="gate__title">${REBUILT.t("gate.password_changed")}</h1>
+        <p class="gate__sub">${REBUILT.t("gate.done_your_new_password_works")}</p>
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="continue" data-autofocus>${REBUILT.t("gate.continue_to_rebuilt")}</button>
       </div>
     `);
   }
@@ -667,10 +716,10 @@ REBUILT.Gate = (function () {
     return frame(`
       <div class="gate__state">
         <span class="gate__state-ico gate__state-ico--warn">${I().svg("alert", { size: 30 })}</span>
-        <h1 class="gate__title">اللينك مش شغال</h1>
-        <p class="gate__sub">اللينك ده انتهت صلاحيته أو اتستخدم قبل كده. استعادة الباسورد بقت بكود بيوصلك على الإيميل وبتكتبه هنا في الموقع، فاطلب كود جديد.</p>
-        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="forgot" data-autofocus>اطلب كود جديد</button>
-        <button type="button" class="btn btn--ghost btn--block" data-go="signin">رجوع لتسجيل الدخول</button>
+        <h1 class="gate__title">${REBUILT.t("gate.the_link_isn_t_working")}</h1>
+        <p class="gate__sub">${REBUILT.t("gate.this_link_has_expired_or")}</p>
+        <button type="button" class="btn btn--primary btn--lg btn--block" data-go="forgot" data-autofocus>${REBUILT.t("gate.request_a_new_code")}</button>
+        <button type="button" class="btn btn--ghost btn--block" data-go="signin">${REBUILT.t("gate.back_to_sign_in")}</button>
       </div>
     `);
   }
@@ -682,12 +731,12 @@ REBUILT.Gate = (function () {
     const idx = ONBOARD_STEPS.indexOf(step);
     const total = ONBOARD_STEPS.length;
     const pct = Math.round(((idx + 1) / total) * 100);
-    const back = idx > 0 ? `<button type="button" class="btn btn--secondary" data-go="back">${I().svg("arrowRight")}رجوع</button>` : "<span></span>";
-    const next = opts.hideNext ? "" : `<button type="button" class="btn btn--primary" data-go="next">${opts.nextLabel || "التالي"} ${I().svg("arrowLeft")}</button>`;
+    const back = idx > 0 ? `<button type="button" class="btn btn--secondary" data-go="back">${REBUILT.t("gate.back_2", { p1: I().svg("arrowRight") })}</button>` : "<span></span>";
+    const next = opts.hideNext ? "" : `<button type="button" class="btn btn--primary" data-go="next">${opts.nextLabel || REBUILT.t("gate.next")} ${I().svg("arrowLeft")}</button>`;
     return frame(`
       <div class="wizard-head">
-        <span class="wizard-head__count">الخطوة <span class="num">${idx + 1}</span> من <span class="num">${total}</span></span>
-        <div class="progress progress--sm" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="تقدّم الإعداد"><span class="progress__fill" style="width:${pct}%"></span></div>
+        <span class="wizard-head__count">${REBUILT.t("gate.step")} <span class="num">${idx + 1}</span> ${REBUILT.t("gate.of")} <span class="num">${total}</span></span>
+        <div class="progress progress--sm" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${REBUILT.t("gate.setup_progress")}"><span class="progress__fill" style="width:${pct}%"></span></div>
       </div>
       ${inner}
       <div class="wizard-nav">${back}${next}</div>
@@ -696,28 +745,28 @@ REBUILT.Gate = (function () {
 
   function basicHTML() {
     return onboardFrame(`
-      <h1 class="gate__title">نعرفك أكتر</h1>
-      <p class="gate__sub">دول بيساعدوا REBUILT يبقى مناسب ليك.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.getting_to_know_you")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.these_help_rebuilt_fit_you")}</p>
       <div class="gate__form">
-        ${field({ name: "name", label: "اسمك", autocomplete: "name", value: draft.name, autofocus: true, maxlength: 40 })}
+        ${field({ name: "name", label: REBUILT.t("gate.your_name"), autocomplete: "name", value: draft.name, autofocus: true, maxlength: 40 })}
         <div class="field">
-          <span class="field__label" id="occ-label">بتعمل إيه في حياتك؟<span class="optional">اختياري</span></span>
+          <span class="field__label" id="occ-label">${REBUILT.t("gate.what_do_you_do_in")}<span class="optional">${REBUILT.t("gate.optional")}</span></span>
           <div class="chip-row" id="occupation-picker" role="radiogroup" aria-labelledby="occ-label">
             ${REBUILT.Data.OCCUPATIONS.map((o) => `<button type="button" role="radio" aria-checked="${draft.occupation === o.id}" class="chip ${draft.occupation === o.id ? "is-selected" : ""}" data-occ="${o.id}">${o.label}</button>`).join("")}
           </div>
         </div>
-        ${field({ name: "occupationCustom", label: "حدّد أكتر", value: draft.occupationCustom, optional: true, placeholder: "مثلاً: مصمم جرافيك" , maxlength: 60 })}
+        ${field({ name: "occupationCustom", label: REBUILT.t("gate.select_more"), value: draft.occupationCustom, optional: true, placeholder: REBUILT.t("gate.e_g_graphic_designer") , maxlength: 60 })}
       </div>
     `);
   }
 
   function lifeHTML() {
     return onboardFrame(`
-      <h1 class="gate__title">احكيلنا شوية عن حياتك</h1>
-      <p class="gate__sub">أيامك عادةً بتكون إزاي؟ اختياري.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.tell_us_a_bit_about")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.what_are_your_days_usually")}</p>
       <div class="field">
-        <label class="field__label visually-hidden" for="life-desc">وصف حياتك</label>
-        <textarea class="field__input" id="life-desc" rows="5" maxlength="600" data-autofocus placeholder="مثلاً: طالب وبشتغل بعد الجامعة وبتعلم برمجة...">${esc(draft.lifeDescription)}</textarea>
+        <label class="field__label visually-hidden" for="life-desc">${REBUILT.t("gate.about_your_life")}</label>
+        <textarea class="field__input" id="life-desc" rows="5" maxlength="600" data-autofocus placeholder="${REBUILT.t("gate.e_g_a_student_who")}">${esc(draft.lifeDescription)}</textarea>
       </div>
     `);
   }
@@ -734,35 +783,35 @@ REBUILT.Gate = (function () {
       </div>
       <div class="gate__add">
         <input class="field__input" id="tag-custom-input" type="text" maxlength="60" placeholder="${cfg.addPlaceholder}" aria-label="${cfg.addPlaceholder}" />
-        <button type="button" class="btn btn--secondary" id="tag-custom-add" aria-label="إضافة">${I().svg("plus")}</button>
+        <button type="button" class="btn btn--secondary" id="tag-custom-add" aria-label="${REBUILT.t("gate.add")}">${I().svg("plus")}</button>
       </div>
     `);
   }
 
   function challengesHTML() {
     return onboardFrame(`
-      <h1 class="gate__title">إيه أكتر حاجة بتصعّب عليك تنظم حياتك؟</h1>
-      <p class="gate__sub">اكتب بصراحة، اختياري. ده بيخلّي REBUILT يفهمك أكتر.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.what_makes_it_hardest_to")}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.be_honest_optional_it_helps")}</p>
       <div class="field">
-        <label class="field__label visually-hidden" for="challenges">التحديات</label>
-        <textarea class="field__input" id="challenges" rows="5" maxlength="600" data-autofocus placeholder="مثلاً: بابدأ حاجات كتير وما بكملهاش...">${esc(draft.challenges)}</textarea>
+        <label class="field__label visually-hidden" for="challenges">${REBUILT.t("gate.challenges")}</label>
+        <textarea class="field__input" id="challenges" rows="5" maxlength="600" data-autofocus placeholder="${REBUILT.t("gate.e_g_i_start_lots")}">${esc(draft.challenges)}</textarea>
       </div>
     `);
   }
 
   function summaryHTML() {
     const row = (icon, label, list) => `
-      <li><span class="summary__ico">${I().svg(icon)}</span><span><strong>${label}</strong>${list.length ? `<span class="summary__chips">${list.map((x) => `<span class="badge">${esc(x)}</span>`).join("")}</span>` : `<span class="faint">لسه مفيش</span>`}</span></li>`;
+      <li><span class="summary__ico">${I().svg(icon)}</span><span><strong>${label}</strong>${list.length ? `<span class="summary__chips">${list.map((x) => `<span class="badge">${esc(x)}</span>`).join("")}</span>` : `<span class="faint">${REBUILT.t("gate.nothing_yet")}</span>`}</span></li>`;
     return onboardFrame(`
       <span class="gate__state-ico gate__state-ico--left gate__state-ico--ok">${I().svg("checkCircle", { size: 28 })}</span>
-      <h1 class="gate__title">جاهزين يا ${esc((draft.name || "بطل").trim().split(/\s+/)[0])}</h1>
-      <p class="gate__sub">دي ملخص إجاباتك. تقدر تعدّل أي حاجة منهم بعدين من الملف الشخصي.</p>
+      <h1 class="gate__title">${REBUILT.t("gate.ready", { p1: esc((draft.name || REBUILT.t("gate.champ")).trim().split(/\s+/)[0]) })}</h1>
+      <p class="gate__sub">${REBUILT.t("gate.this_is_a_summary_of")}</p>
       <ul class="summary">
-        ${row("target", "أهدافك", draft.goals)}
-        ${row("sparkles", "مهاراتك", draft.skills)}
-        ${row("heart", "اهتماماتك", draft.hobbies)}
+        ${row("target", REBUILT.t("gate.your_goals"), draft.goals)}
+        ${row("sparkles", REBUILT.t("gate.your_skills"), draft.skills)}
+        ${row("heart", REBUILT.t("gate.your_interests"), draft.hobbies)}
       </ul>
-      <button type="button" class="btn btn--primary btn--lg btn--block" id="gate-finish" data-autofocus>يلا نبني يومك</button>
+      <button type="button" class="btn btn--primary btn--lg btn--block" id="gate-finish" data-autofocus>${REBUILT.t("gate.let_s_build_your_day")}</button>
     `, { hideNext: true });
   }
 
@@ -778,7 +827,7 @@ REBUILT.Gate = (function () {
         const show = input.type === "password";
         input.type = show ? "text" : "password";
         btn.setAttribute("aria-pressed", String(show));
-        btn.setAttribute("aria-label", show ? "إخفاء الباسورد" : "إظهار الباسورد");
+        btn.setAttribute("aria-label", show ? REBUILT.t("gate.hide_password") : REBUILT.t("gate.show_password"));
         btn.innerHTML = I().svg(show ? "eyeOff" : "eye");
         input.focus();
       });
@@ -819,7 +868,7 @@ REBUILT.Gate = (function () {
     const score = REBUILT.Auth.passwordStrength(value);
     meter.dataset.strength = String(score);
     const label = qs("[data-strength-label]");
-    if (label) label.textContent = ["", "ضعيف", "كويس", "قوي"][score] || "";
+    if (label) label.textContent = ["", REBUILT.t("gate.weak"), REBUILT.t("gate.good"), REBUILT.t("gate.strong")][score] || "";
   }
 
   function go(target) {
@@ -871,7 +920,7 @@ REBUILT.Gate = (function () {
           try {
             return await REBUILT.Auth.signInWithGoogle();
           } catch (err) {
-            return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+            return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
           }
         });
         if (run.skipped) return;
@@ -913,7 +962,7 @@ REBUILT.Gate = (function () {
         try {
           return isSignup ? await REBUILT.Auth.signUp(state, payload) : await REBUILT.Auth.signIn(state, payload);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -922,10 +971,10 @@ REBUILT.Gate = (function () {
       if (!result.ok) {
         // Wrong password is also what an account that only ever used Google looks like — a generic hint, so it reveals nothing.
         const hint = result.kind === "credentials" && !isSignup && REBUILT.Auth.isRealAuth()
-          ? `<br/><span class="faint">لو حسابك اتعمل بـ Google، دوس «المتابعة باستخدام Google» فوق.</span>` : "";
+          ? `<br/><span class="faint">${REBUILT.t("gate.if_your_account_was_created")}</span>` : "";
         // "Confirm your e-mail first": the way forward is a new confirmation message, offered right here.
         const needsConfirm = !isSignup && result.kind === "not_confirmed";
-        const resendHint = needsConfirm ? `<br/><button type="button" class="btn-link" id="inline-resend">ابعت رسالة التأكيد تاني</button><span class="resend-msg" id="inline-resend-msg" role="alert"></span>` : "";
+        const resendHint = needsConfirm ? `<br/><button type="button" class="btn-link" id="inline-resend">${REBUILT.t("gate.resend_the_confirmation_email")}</button><span class="resend-msg" id="inline-resend-msg" role="alert"></span>` : "";
         showNotice("danger", esc(result.error), hint + resendHint);
         if (needsConfirm) bindResendConfirm(qs("#inline-resend"), () => form.email, qs("#inline-resend-msg"));
         if (result.limited) startHold(key, result.retryAfter, submitBtn); // no point inviting another click right away
@@ -977,7 +1026,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.resendConfirmation(email);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -991,7 +1040,7 @@ REBUILT.Gate = (function () {
         if (res.limited) startHold("resendconfirm", res.retryAfter, btn);
         return;
       }
-      showNotice("success", "لو الإيميل ده مسجّل ولسه مش مؤكد، هتوصلك رسالة تأكيد جديدة خلال دقيقة. بص في الـ Spam كمان، وافتح آخر رسالة وصلتك.");
+      showNotice("success", REBUILT.t("gate.if_this_email_is_registered"));
       startHold("resendconfirm", REBUILT.Auth.DEFAULT_COOLDOWN_SECONDS, btn);
     });
   }
@@ -1012,7 +1061,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.consumeEmailLink(); // the link is still in the address, so this checks it again
         } catch (err) {
-          return { ok: false, kind: "network", retry: true, error: "مفيش اتصال بالنت دلوقتي." };
+          return { ok: false, kind: "network", retry: true, error: REBUILT.t("gate.no_internet_connection_right_now") };
         }
       });
       if (run.skipped) return;
@@ -1021,12 +1070,12 @@ REBUILT.Gate = (function () {
         authMode = "signin";
         step = "auth";
         form.email = r.email || form.email;
-        pendingNotice = CONFIRMED_TEXT;
+        pendingNotice = confirmedText();
         pendingTone = "success";
         return render();
       }
       if (r && r.retry) {
-        showNotice("danger", esc(r.error || "مفيش اتصال بالنت دلوقتي."));
+        showNotice("danger", esc(r.error || REBUILT.t("gate.no_internet_connection_right_now")));
         return;
       }
       emailProblem = r || { ok: false, kind: "expired" };
@@ -1054,7 +1103,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.requestPasswordReset(email);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -1092,7 +1141,7 @@ REBUILT.Gate = (function () {
     };
     if (guard.attemptsLeft() <= 0) {
       lockCode(true);
-      showNotice("danger", "جرّبت كذا مرة والكود غلط. اطلب كود جديد وجرّب بيه.");
+      showNotice("danger", REBUILT.t("gate.you_ve_tried_a_few"));
     }
 
     // ---- resend: its own wait, the longer of the app's cooldown and any server-side pause ----
@@ -1126,7 +1175,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.requestPasswordReset(form.email);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -1144,7 +1193,7 @@ REBUILT.Gate = (function () {
       lockCode(false);
       input.value = "";
       input.focus();
-      showNotice("success", "بعتنالك كود جديد. الكود القديم بطّل يشتغل.");
+      showNotice("success", REBUILT.t("gate.we_sent_you_a_new"));
       left = cooldownSeconds();
       restartTimer();
     });
@@ -1162,7 +1211,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.verifyRecoveryCode(form.email, check.code);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -1203,7 +1252,7 @@ REBUILT.Gate = (function () {
         try {
           return await REBUILT.Auth.updatePassword(payload.password);
         } catch (err) {
-          return { ok: false, error: "حصلت مشكلة صغيرة، جرّب تاني." };
+          return { ok: false, error: REBUILT.t("gate.something_small_went_wrong_try") };
         }
       });
       if (run.skipped) return;
@@ -1211,8 +1260,8 @@ REBUILT.Gate = (function () {
 
       if (!res.ok) {
         if (res.limited) startHold("reset", res.retryAfter, btn);
-        const stale = res.kind === "expired" || res.kind === "no_session" || res.code === "otp_expired" || res.code === "session_not_found" || /session|link|صلاحيته|الجلسة/i.test(res.error || "");
-        showNotice("danger", esc(res.error), stale ? `<br/><button type="button" class="btn-link" data-go="forgot">اطلب كود جديد</button>` : "");
+        const stale = res.kind === "expired" || res.kind === "no_session" || res.code === "otp_expired" || res.code === "session_not_found" || /session|link|expired|ended|صلاحيته|الجلسة/i.test(res.error || ""); // i18n-ignore: matches the Arabic and the English wording of the same error
+        showNotice("danger", esc(res.error), stale ? `<br/><button type="button" class="btn-link" data-go="forgot">${REBUILT.t("gate.request_a_new_code")}</button>` : "");
         qsa("#gate-notice [data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
         return;
       }
@@ -1270,7 +1319,7 @@ REBUILT.Gate = (function () {
       draft.name = (qs("#f-name") || {}).value || "";
       draft.occupationCustom = (qs("#f-occupationCustom") || {}).value || "";
       if (!draft.name.trim()) {
-        setFieldError("name", "محتاجين اسمك الأول.");
+        setFieldError("name", REBUILT.t("gate.we_need_your_first_name"));
         qs("#f-name").focus();
         return;
       }
@@ -1320,5 +1369,5 @@ REBUILT.Gate = (function () {
     finishGate();
   }
 
-  return { start, showBackendError, clearBackendError };
+  return { start, showBackendError, clearBackendError, rerender };
 })();

@@ -100,8 +100,8 @@ REBUILT.AI = (function () {
       if (!Service.isConnected()) {
         pushMessage(state, "user", userText);
         const reply =
-          "REBUILT AI محتاج حساب متصل بالسيرفر عشان يشتغل فعليًا. " +
-          "سجّل دخول بحساب حقيقي، ولحد ما تعمل كده أنا بس بحفظ كلامك هنا.";
+          REBUILT.t("ai.rebuilt_ai_needs_an_account") +
+          REBUILT.t("ai.sign_in_with_a_real");
         pushMessage(state, "assistant", reply);
         return { role: "assistant", text: reply, connected: false };
       }
@@ -120,17 +120,17 @@ REBUILT.AI = (function () {
 
         if (error) {
           const serverReply = await extractServerReply(error);
-          const reply = serverReply || "حصلت مشكلة في الاتصال بـ REBUILT AI. جرّب تاني.";
+          const reply = serverReply || REBUILT.t("ai.there_was_a_problem_connecting");
           pushMessage(state, "assistant", reply);
           return { role: "assistant", text: reply, connected: true, error: true };
         }
 
-        const reply = (data && data.reply) || "معرفتش أرد دلوقتي، جرّب تصيغ كلامك بطريقة تانية.";
+        const reply = (data && data.reply) || REBUILT.t("ai.i_couldn_t_reply_right");
         pushMessage(state, "assistant", reply);
         return { role: "assistant", text: reply, connected: true };
       } catch (err) {
         console.warn("REBUILT: ai-chat call failed", err);
-        const reply = "حصلت مشكلة في الاتصال. جرّب تاني.";
+        const reply = REBUILT.t("ai.there_was_a_connection_problem");
         pushMessage(state, "assistant", reply);
         return { role: "assistant", text: reply, connected: true, error: true };
       }

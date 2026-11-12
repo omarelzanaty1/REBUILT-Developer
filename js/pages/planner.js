@@ -16,10 +16,10 @@ REBUILT.Pages.planner = (function () {
   let selectedDate = Data.todayISO(0);
 
   const TYPES = [
-    { id: "event", label: "حدث" },
-    { id: "break", label: "راحة" },
-    { id: "task", label: "مهمة" },
-    { id: "habit", label: "عادة" },
+    { id: "event", get label() { return REBUILT.t("planner.event"); } },
+    { id: "break", get label() { return REBUILT.t("planner.break"); } },
+    { id: "task", get label() { return REBUILT.t("planner.task"); } },
+    { id: "habit", get label() { return REBUILT.t("planner.habit"); } },
   ];
 
   /** Date arithmetic on LOCAL calendar days (toISOString() would shift the day by the UTC offset). */
@@ -41,13 +41,13 @@ REBUILT.Pages.planner = (function () {
     const today = Data.todayISO(0);
     const isToday = selectedDate === today;
     const dateObj = new Date(selectedDate + "T00:00:00");
-    const dayLabel = dateObj.toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long" });
+    const dayLabel = REBUILT.I18n.date(dateObj, { weekday: "long", day: "numeric", month: "long" });
 
     const days = weekAround(selectedDate).map((d) => {
       const obj = new Date(d + "T00:00:00");
       const count = countFor(state, d);
       return `
-        <button type="button" class="day-chip ${d === selectedDate ? "is-selected" : ""} ${d === today ? "is-today" : ""}" data-day="${d}" aria-pressed="${d === selectedDate}" aria-label="${obj.toLocaleDateString("ar-EG-u-nu-latn", { weekday: "long", day: "numeric", month: "long" })}">
+        <button type="button" class="day-chip ${d === selectedDate ? "is-selected" : ""} ${d === today ? "is-today" : ""}" data-day="${d}" aria-pressed="${d === selectedDate}" aria-label="${REBUILT.I18n.date(obj, { weekday: "long", day: "numeric", month: "long" })}">
           <small>${Data.WEEKDAY_LABELS[obj.getDay()]}</small>
           <strong class="num">${obj.getDate()}</strong>
           <i class="${count ? "has-items" : ""}" aria-hidden="true"></i>
@@ -56,21 +56,21 @@ REBUILT.Pages.planner = (function () {
 
     return `
       ${Components.pageHeader({
-        title: "يومي",
-        sub: "خطّة يومك ساعة بساعة.",
-        actions: `<button type="button" class="btn btn--primary" data-action="open-add-schedule-item">${I.svg("plus")}إضافة لليوم</button>`,
+        title: REBUILT.t("planner.my_day"),
+        sub: REBUILT.t("planner.your_day_plan_hour_by"),
+        actions: `<button type="button" class="btn btn--primary" data-action="open-add-schedule-item">${REBUILT.t("planner.add_to_the_day", { p1: I.svg("plus") })}</button>`,
       })}
 
       <section class="daybar card card--tight">
         <div class="daybar__top">
-          <button type="button" class="icon-btn" id="planner-prev" aria-label="الأسبوع السابق">${I.svg("chevronRight")}</button>
+          <button type="button" class="icon-btn" id="planner-prev" aria-label="${REBUILT.t("planner.previous_week")}">${I.svg("chevronRight")}</button>
           <div class="daybar__label">
             <strong>${dayLabel}</strong>
-            ${!isToday ? `<button type="button" class="btn-link" id="planner-today">رجوع لليوم</button>` : `<span class="badge badge--brand">النهارده</span>`}
+            ${!isToday ? `<button type="button" class="btn-link" id="planner-today">${REBUILT.t("planner.back_to_today")}</button>` : `<span class="badge badge--brand">${REBUILT.t("planner.today")}</span>`}
           </div>
-          <button type="button" class="icon-btn" id="planner-next" aria-label="الأسبوع التالي">${I.svg("chevronLeft")}</button>
+          <button type="button" class="icon-btn" id="planner-next" aria-label="${REBUILT.t("planner.next_week")}">${I.svg("chevronLeft")}</button>
         </div>
-        <div class="daybar__days" role="group" aria-label="أيام الأسبوع">${days}</div>
+        <div class="daybar__days" role="group" aria-label="${REBUILT.t("planner.days_of_the_week")}">${days}</div>
       </section>
 
       <section class="card">
@@ -78,9 +78,9 @@ REBUILT.Pages.planner = (function () {
           ? `<ol class="timeline">${items.map(timelineRow).join("")}</ol>`
           : Components.emptyState({
               icon: "calendar",
-              title: "اليوم فاضي",
-              text: "لسه مفيش حاجة متخططة لليوم ده.\nضيف عنصر أو حدّد وقت لمهمة أو عادة.",
-              actions: [{ label: "إضافة لليوم", action: "open-add-schedule-item", icon: "plus" }],
+              title: REBUILT.t("planner.the_day_is_empty"),
+              text: REBUILT.t("planner.nothing_planned_for_this_day"),
+              actions: [{ label: REBUILT.t("planner.add_to_the_day_2"), action: "open-add-schedule-item", icon: "plus" }],
             })}
       </section>
     `;
@@ -105,7 +105,7 @@ REBUILT.Pages.planner = (function () {
   }
 
   function slot(time, inner) {
-    return `<li class="timeline__item"><span class="timeline__time num">${esc(time)}</span><div class="timeline__body">${inner}</div></li>`;
+    return `<li class="timeline__item"><span class="timeline__time num">${esc(REBUILT.I18n.time(time))}</span><div class="timeline__body">${inner}</div></li>`;
   }
 
   function timelineRow(entry) {
@@ -115,11 +115,11 @@ REBUILT.Pages.planner = (function () {
       const t = entry.data;
       return slot(entry.time, `
         <div class="row row--schedule ${t.completed ? "is-done" : ""}">
-          <button type="button" class="row__check" data-action="toggle-task" data-id="${esc(t.id)}" aria-pressed="${t.completed}" aria-label="${t.completed ? "إلغاء إنجاز" : "تحديد كمنجز"}: ${esc(t.title)}">${t.completed ? I.svg("check", { size: 17, stroke: 2.6 }) : ""}</button>
+          <button type="button" class="row__check" data-action="toggle-task" data-id="${esc(t.id)}" aria-pressed="${t.completed}" aria-label="${t.completed ? REBUILT.t("planner.undo_completion") : REBUILT.t("planner.mark_as_done")}: ${esc(t.title)}">${t.completed ? I.svg("check", { size: 17, stroke: 2.6 }) : ""}</button>
           <span class="row__icon">${I.svg("tasks")}</span>
-          <button type="button" class="row__body" data-action="edit-task" data-id="${esc(t.id)}" aria-label="تعديل: ${esc(t.title)}">
+          <button type="button" class="row__body" data-action="edit-task" data-id="${esc(t.id)}" aria-label="${REBUILT.t("planner.edit", { p1: esc(t.title) })}">
             <span class="row__title">${esc(t.title)}</span>
-            <span class="row__meta"><span>مهمة</span>${Components.priorityBadge(t.priority)}</span>
+            <span class="row__meta"><span>${REBUILT.t("planner.task")}</span>${Components.priorityBadge(t.priority)}</span>
           </button>
           <span class="row__xp"><bdi>+${t.xp} XP</bdi></span>
           <span></span>
@@ -132,12 +132,12 @@ REBUILT.Pages.planner = (function () {
     return slot(entry.time, `
       <div class="row row--schedule ${done ? "is-done" : ""}">
         ${isToday
-          ? `<button type="button" class="row__check" data-action="toggle-habit" data-id="${esc(h.id)}" aria-pressed="${done}" aria-label="${done ? "إلغاء إنجاز" : "تحديد كمنجز"}: ${esc(h.title)}">${done ? I.svg("check", { size: 17, stroke: 2.6 }) : ""}</button>`
+          ? `<button type="button" class="row__check" data-action="toggle-habit" data-id="${esc(h.id)}" aria-pressed="${done}" aria-label="${done ? REBUILT.t("planner.undo_completion") : REBUILT.t("planner.mark_as_done")}: ${esc(h.title)}">${done ? I.svg("check", { size: 17, stroke: 2.6 }) : ""}</button>`
           : `<span class="row__check row__check--static ${done ? "is-on" : ""}" aria-hidden="true">${done ? I.svg("check", { size: 17, stroke: 2.6 }) : ""}</span>`}
         <span class="row__icon">${I.svg(I.resolve(h.icon, "flame"))}</span>
-        <button type="button" class="row__body" data-action="edit-habit" data-id="${esc(h.id)}" aria-label="تعديل: ${esc(h.title)}">
+        <button type="button" class="row__body" data-action="edit-habit" data-id="${esc(h.id)}" aria-label="${REBUILT.t("planner.edit", { p1: esc(h.title) })}">
           <span class="row__title">${esc(h.title)}</span>
-          <span class="row__meta"><span>عادة</span></span>
+          <span class="row__meta"><span>${REBUILT.t("planner.habit")}</span></span>
         </button>
         <span class="row__xp"><bdi>+${h.xp} XP</bdi></span>
         <span></span>
@@ -164,25 +164,25 @@ REBUILT.Pages.planner = (function () {
 
     const body = `
       <form class="form" id="schedule-form" novalidate>
-        ${Components.inputField({ name: "title", label: "العنوان", value: editing ? editing.title : "", maxlength: 80, placeholder: "مثلاً: محاضرة", autofocus: !editing })}
+        ${Components.inputField({ name: "title", label: REBUILT.t("planner.title"), value: editing ? editing.title : "", maxlength: 80, placeholder: REBUILT.t("planner.e_g_a_lecture"), autofocus: !editing })}
         <div class="field">
-          <span class="field__label">النوع</span>
+          <span class="field__label">${REBUILT.t("planner.type")}</span>
           ${Components.segmented("type", TYPES, editing ? editing.type : "event")}
         </div>
-        ${Components.inputField({ name: "date", label: "التاريخ", type: "date", value: editing ? editing.date : selectedDate })}
+        ${Components.inputField({ name: "date", label: REBUILT.t("planner.date"), type: "date", value: editing ? editing.date : selectedDate })}
         <div class="field-row">
-          ${Components.inputField({ name: "startTime", label: "وقت البداية", type: "time", value: editing ? editing.startTime : "" })}
-          ${Components.inputField({ name: "endTime", label: "وقت النهاية", type: "time", value: editing && editing.endTime ? editing.endTime : "", optional: true })}
+          ${Components.inputField({ name: "startTime", label: REBUILT.t("planner.start_time"), type: "time", value: editing ? editing.startTime : "" })}
+          ${Components.inputField({ name: "endTime", label: REBUILT.t("planner.end_time"), type: "time", value: editing && editing.endTime ? editing.endTime : "", optional: true })}
         </div>
-        ${Components.inputField({ name: "notes", label: "ملاحظات", value: editing ? editing.notes || "" : "", optional: true, maxlength: 160 })}
+        ${Components.inputField({ name: "notes", label: REBUILT.t("planner.notes"), value: editing ? editing.notes || "" : "", optional: true, maxlength: 160 })}
         <div class="modal__footer">
-          <button type="submit" class="btn btn--primary">${editing ? "حفظ التعديلات" : "إضافة"}</button>
-          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-schedule-item" data-id="${esc(editing.id)}">${I.svg("trash")}حذف</button>` : ""}
+          <button type="submit" class="btn btn--primary">${editing ? REBUILT.t("planner.save_changes") : REBUILT.t("planner.add")}</button>
+          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-schedule-item" data-id="${esc(editing.id)}">${REBUILT.t("planner.delete", { p1: I.svg("trash") })}</button>` : ""}
         </div>
       </form>`;
 
     REBUILT.Modal.open({
-      title: editing ? "تعديل العنصر" : "إضافة لخطة يومك",
+      title: editing ? REBUILT.t("planner.edit_item") : REBUILT.t("planner.add_to_your_day_plan"),
       body,
       onMount: (modal) => {
         const form = modal.querySelector("#schedule-form");
@@ -198,10 +198,10 @@ REBUILT.Pages.planner = (function () {
           const endTime = fd.get("endTime");
           // Validate bottom-up so the first (top-most) problem ends up focused.
           let bad = null;
-          if (endTime && startTime && endTime <= startTime) bad = ["endTime", "وقت النهاية لازم يكون بعد وقت البداية."];
-          if (!startTime) bad = ["startTime", "اختار وقت البداية."];
-          if (!date) bad = ["date", "اختار التاريخ."];
-          if (!title) bad = ["title", "اكتب عنوان."];
+          if (endTime && startTime && endTime <= startTime) bad = ["endTime", REBUILT.t("planner.the_end_time_has_to")];
+          if (!startTime) bad = ["startTime", REBUILT.t("planner.pick_a_start_time")];
+          if (!date) bad = ["date", REBUILT.t("planner.pick_a_date")];
+          if (!title) bad = ["title", REBUILT.t("planner.enter_a_title")];
           if (bad) return Components.setFieldError(modal, bad[0], bad[1]);
           const payload = {
             title,

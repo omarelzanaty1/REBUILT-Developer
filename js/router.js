@@ -10,16 +10,16 @@ window.REBUILT = window.REBUILT || {};
 
 REBUILT.Router = (function () {
   const PAGES = {
-    dashboard: "الرئيسية",
-    habits: "العادات",
-    tasks: "المهام",
-    goals: "الأهداف",
-    planner: "يومي",
-    analytics: "الإحصائيات",
-    achievements: "الإنجازات",
+    get dashboard() { return REBUILT.t("common.home"); },
+    get habits() { return REBUILT.t("common.habits"); },
+    get tasks() { return REBUILT.t("common.tasks"); },
+    get goals() { return REBUILT.t("common.goals"); },
+    get planner() { return REBUILT.t("common.my_day"); },
+    get analytics() { return REBUILT.t("common.analytics"); },
+    get achievements() { return REBUILT.t("common.achievements"); },
     ai: "REBUILT AI",
-    profile: "الملف الشخصي",
-    settings: "الإعدادات",
+    get profile() { return REBUILT.t("common.profile"); },
+    get settings() { return REBUILT.t("common.settings"); },
   };
   const PAGE_ORDER = Object.keys(PAGES);
   let current = "dashboard";
@@ -43,6 +43,11 @@ REBUILT.Router = (function () {
     }
   }
 
+  /** The tab title follows the page and the language. */
+  function refreshTitle() {
+    document.title = (current === "dashboard" ? "" : PAGES[current] + " — ") + "REBUILT";
+  }
+
   function navigateTo(name) {
     if (!PAGE_ORDER.includes(name)) name = "dashboard";
     const changed = name !== current || !document.getElementById("page-content").firstElementChild;
@@ -50,7 +55,7 @@ REBUILT.Router = (function () {
     syncHash(name);
     renderCurrent({ animate: changed });
     REBUILT.Shell.setActive(name);
-    document.title = (name === "dashboard" ? "" : PAGES[name] + " — ") + "REBUILT";
+    refreshTitle();
     if (changed) {
       window.scrollTo(0, 0);
       const content = document.getElementById("page-content");
@@ -90,5 +95,5 @@ REBUILT.Router = (function () {
     if (target && target !== current && appVisible && REBUILT.App && REBUILT.App.state) navigateTo(target);
   });
 
-  return { navigateTo, renderCurrent, getCurrent, pageFromHash, PAGE_ORDER };
+  return { navigateTo, renderCurrent, refreshTitle, getCurrent, pageFromHash, PAGE_ORDER };
 })();

@@ -64,7 +64,7 @@ REBUILT.Toast = (function () {
   }
 
   function achievement(name, icon) {
-    show({ icon: icon || "trophy", text: `إنجاز جديد: ${REBUILT.Components.esc(name)}`, tone: "achievement", duration: 4000 });
+    show({ icon: icon || "trophy", text: REBUILT.t("common.new_achievement", { p1: REBUILT.Components.esc(name) }), tone: "achievement", duration: 4000 });
   }
 
   /** A brief confetti burst in brand colours — reserved for achievement unlocks. */
@@ -94,14 +94,14 @@ REBUILT.Toast = (function () {
     const overlay = document.createElement("div");
     overlay.className = "levelup-overlay";
     overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-label", "مستوى جديد");
+    overlay.setAttribute("aria-label", REBUILT.t("common.new_level"));
     overlay.innerHTML = `
       <div class="levelup-card">
         <div class="levelup-burst" aria-hidden="true"></div>
         <div class="levelup-label">LEVEL UP</div>
         <div class="levelup-number">${level}</div>
         <p class="levelup-message">${message}</p>
-        <button type="button" class="btn btn--primary levelup-dismiss">تمام، يلا نكمل</button>
+        <button type="button" class="btn btn--primary levelup-dismiss">${REBUILT.t("common.alright_let_s_keep_going")}</button>
       </div>
     `;
     document.body.appendChild(overlay);

@@ -72,19 +72,19 @@ REBUILT.Goals = (function () {
 
   /** Egyptian-Arabic day count: يوم / يومين / 3–10 أيام / 11+ يوم. */
   function daysWord(n) {
-    if (n === 1) return "يوم";
-    if (n === 2) return "يومين";
-    if (n >= 3 && n <= 10) return n + " أيام";
-    return n + " يوم";
+    if (n === 1) return REBUILT.t("goals.1_day");
+    if (n === 2) return REBUILT.t("goals.2_days");
+    if (n >= 3 && n <= 10) return n + REBUILT.t("goals.days");
+    return n + REBUILT.t("goals.days_2");
   }
 
   function dueLabel(goal) {
     const d = daysLeft(goal);
     if (d === null) return "";
-    if (d < 0) return d === -1 ? "متأخر يوم" : `متأخر ${daysWord(Math.abs(d))}`;
-    if (d === 0) return "الموعد النهارده";
-    if (d === 1) return "الموعد بكرة";
-    return `فاضل ${daysWord(d)}`;
+    if (d < 0) return d === -1 ? REBUILT.t("goals.overdue_by_1_day") : REBUILT.t("goals.overdue_by", { p1: daysWord(Math.abs(d)) });
+    if (d === 0) return REBUILT.t("goals.due_today");
+    if (d === 1) return REBUILT.t("goals.due_tomorrow");
+    return REBUILT.t("goals.left", { p1: daysWord(d) });
   }
 
   /** Active first (soonest deadline first, then newest), completed last. */

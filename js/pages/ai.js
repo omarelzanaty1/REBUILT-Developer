@@ -26,7 +26,7 @@ REBUILT.Pages.ai = (function () {
     return `
       <section class="page-header">
         <h1 class="page-header__title">REBUILT AI</h1>
-        <span class="badge ${connected ? "badge--priority-low" : "badge--priority-medium"}">${connected ? "متصل" : "لسه مش متصل بموديل حقيقي"}</span>
+        <span class="badge ${connected ? "badge--priority-low" : "badge--priority-medium"}">${connected ? REBUILT.t("ai.connected") : REBUILT.t("ai.not_connected_to_a_real")}</span>
       </section>
 
       ${
@@ -34,31 +34,30 @@ REBUILT.Pages.ai = (function () {
           ? ""
           : `<section class="card ai-notice">
         <p class="card__note">
-          REBUILT AI هيبقى المساعد اللي بيفهمك ويخطط يومك معاك، لكن ده محتاج حساب متصل بالسيرفر —
-          سجّل دخول بحساب حقيقي عشان تفعّله. لحد كده، ده مساحة تجريبية بتحفظلك كلامك وتوريك البيانات اللي هيشتغل عليها.
+          ${REBUILT.t("ai.rebuilt_ai_will_be_the")}
         </p>
       </section>`
       }
 
       <section class="card ai-chat">
         <div class="ai-chat__log" id="ai-chat-log">
-          ${messages.length ? messages.map(bubble).join("") : `<p class="card__note">ابدأ تكتب، وREBUILT AI هيحفظ كلامك هنا.</p>`}
+          ${messages.length ? messages.map(bubble).join("") : `<p class="card__note">${REBUILT.t("ai.start_typing_and_rebuilt_ai")}</p>`}
         </div>
         <form class="ai-chat__form" id="ai-chat-form">
-          <input class="field__input" id="ai-chat-input" type="text" placeholder="قولّي عن يومك أو هدفك..." autocomplete="off" />
-          <button type="submit" class="btn btn--primary" id="ai-chat-submit">إرسال</button>
+          <input class="field__input" id="ai-chat-input" type="text" placeholder="${REBUILT.t("ai.tell_me_about_your_day")}" autocomplete="off" />
+          <button type="submit" class="btn btn--primary" id="ai-chat-submit">${REBUILT.t("ai.send")}</button>
         </form>
       </section>
 
       <section class="card">
-        <div class="card__head"><h2 class="card__title">إيه اللي REBUILT AI شايفه عنك دلوقتي</h2></div>
+        <div class="card__head"><h2 class="card__title">${REBUILT.t("ai.what_rebuilt_ai_sees_about")}</h2></div>
         <ul class="ai-context">
-          <li>${REBUILT.Icons.svg("user")}${ctx.user.name ? escapeHTML(ctx.user.name) : "لسه محددتش اسمك"}</li>
-          <li>${REBUILT.Icons.svg("target")}أهداف: ${ctx.userProfile.goals.length ? escapeHTML(ctx.userProfile.goals.join("، ")) : "لسه مفيش"}</li>
-          <li>${REBUILT.Icons.svg("sparkles")}مهارات: ${ctx.userProfile.skills.length ? escapeHTML(ctx.userProfile.skills.join("، ")) : "لسه مفيش"}</li>
-          <li>${REBUILT.Icons.svg("flame")}عادات نشطة: ${ctx.activeHabits.length}</li>
-          <li>${REBUILT.Icons.svg("tasks")}مهام مفتوحة: ${ctx.openTasks.length}</li>
-          <li>${REBUILT.Icons.svg("trend")}تقدم النهارده: <bdi>${ctx.today.progress.pct}%</bdi></li>
+          <li>${REBUILT.Icons.svg("user")}${ctx.user.name ? escapeHTML(ctx.user.name) : REBUILT.t("ai.no_name_set_yet")}</li>
+          <li>${REBUILT.t("ai.goals", { p1: REBUILT.Icons.svg("target"), p2: ctx.userProfile.goals.length ? escapeHTML(ctx.userProfile.goals.join(REBUILT.t("ai.text"))) : REBUILT.t("ai.nothing_yet") })}</li>
+          <li>${REBUILT.t("ai.skills", { p1: REBUILT.Icons.svg("sparkles"), p2: ctx.userProfile.skills.length ? escapeHTML(ctx.userProfile.skills.join(REBUILT.t("ai.text"))) : REBUILT.t("ai.nothing_yet") })}</li>
+          <li>${REBUILT.t("ai.active_habits", { p1: REBUILT.Icons.svg("flame"), length: ctx.activeHabits.length })}</li>
+          <li>${REBUILT.t("ai.open_tasks", { p1: REBUILT.Icons.svg("tasks"), length: ctx.openTasks.length })}</li>
+          <li>${REBUILT.t("ai.today_s_progress", { p1: REBUILT.Icons.svg("trend") })} <bdi>${ctx.today.progress.pct}%</bdi></li>
         </ul>
       </section>
     `;

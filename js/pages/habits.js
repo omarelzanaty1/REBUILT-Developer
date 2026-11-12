@@ -11,9 +11,9 @@ REBUILT.Pages.habits = (function () {
 
   function header() {
     return Components.pageHeader({
-      title: "العادات",
-      sub: "حاجات صغيرة بتعملها كل يوم، وبتبني منها نفسك.",
-      actions: `<button type="button" class="btn btn--primary" data-action="open-add-habit">${I.svg("plus")}عادة جديدة</button>`,
+      title: REBUILT.t("habits.habits"),
+      sub: REBUILT.t("habits.small_things_you_do_every"),
+      actions: `<button type="button" class="btn btn--primary" data-action="open-add-habit">${REBUILT.t("habits.new_habit", { p1: I.svg("plus") })}</button>`,
     });
   }
 
@@ -24,9 +24,9 @@ REBUILT.Pages.habits = (function () {
         ${header()}
         <section class="card">${Components.emptyState({
           icon: "flame",
-          title: "ابدأ أول عادة",
+          title: REBUILT.t("habits.start_your_first_habit"),
           text: Messages.emptyHabits(),
-          actions: [{ label: "إضافة عادة", action: "open-add-habit", icon: "plus" }],
+          actions: [{ label: REBUILT.t("habits.add_habit"), action: "open-add-habit", icon: "plus" }],
         })}</section>`;
     }
 
@@ -44,31 +44,31 @@ REBUILT.Pages.habits = (function () {
       <section class="card card--summary">
         <div class="summary-line">
           <div class="summary-line__main">
-            <span class="summary-line__label">النهارده</span>
+            <span class="summary-line__label">${REBUILT.t("habits.today")}</span>
             <span class="summary-line__value num">${done}<small>/${todayHabits.length}</small></span>
           </div>
           <div class="summary-line__bar">
-            <div class="progress progress--lg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="عادات النهارده">
+            <div class="progress progress--lg" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${REBUILT.t("habits.today_s_habits")}">
               <span class="progress__fill" style="width:${pct}%"></span>
             </div>
           </div>
-          <div class="summary-line__aside">${I.svg("flame", { size: 16 })}<span class="num">${bestStreak}</span><small>أطول سلسلة حالية</small></div>
+          <div class="summary-line__aside">${I.svg("flame", { size: 16 })}<span class="num">${bestStreak}</span><small>${REBUILT.t("habits.longest_current_streak")}</small></div>
         </div>
       </section>
 
       <section class="card">
-        <div class="card__head"><h2 class="card__title">عادات النهارده</h2></div>
+        <div class="card__head"><h2 class="card__title">${REBUILT.t("habits.today_s_habits")}</h2></div>
         <div class="row-list">
           ${todayHabits.length
             ? todayHabits.map(Components.habitRow).join("")
-            : Components.emptyState({ compact: true, icon: "calendar", text: "مفيش عادات متفعّلة النهارده." })}
+            : Components.emptyState({ compact: true, icon: "calendar", text: REBUILT.t("habits.no_habits_scheduled_for_today") })}
         </div>
       </section>
 
       ${otherHabits.length ? `
       <section class="card">
         <div class="card__head">
-          <div><h2 class="card__title">عادات تانية</h2><p class="card__sub">مش مجدولة النهارده، بس لسه عاداتك.</p></div>
+          <div><h2 class="card__title">${REBUILT.t("habits.other_habits")}</h2><p class="card__sub">${REBUILT.t("habits.not_scheduled_today_but_still")}</p></div>
         </div>
         <div class="row-list">${otherHabits.map(Components.habitRow).join("")}</div>
       </section>` : ""}
@@ -78,9 +78,9 @@ REBUILT.Pages.habits = (function () {
   /* ---------------- Add / Edit form ---------------- */
 
   const FREQS = [
-    { id: "daily", label: "كل يوم" },
-    { id: "weekly", label: "أسبوعيًا" },
-    { id: "custom", label: "أيام محددة" },
+    { id: "daily", get label() { return REBUILT.t("habits.every_day"); } },
+    { id: "weekly", get label() { return REBUILT.t("habits.weekly"); } },
+    { id: "custom", get label() { return REBUILT.t("habits.specific_days"); } },
   ];
 
   function openForm(state, habitId) {
@@ -91,23 +91,23 @@ REBUILT.Pages.habits = (function () {
 
     const body = `
       <form class="form" id="habit-form" novalidate>
-        ${Components.inputField({ name: "title", label: "اسم العادة", value: editing ? editing.title : "", maxlength: 60, placeholder: "مثلاً: شرب المياه", autofocus: !editing })}
-        ${Components.inputField({ name: "description", label: "وصف", value: editing ? editing.description || "" : "", optional: true, maxlength: 120 })}
+        ${Components.inputField({ name: "title", label: REBUILT.t("habits.habit_name"), value: editing ? editing.title : "", maxlength: 60, placeholder: REBUILT.t("habits.e_g_drink_water"), autofocus: !editing })}
+        ${Components.inputField({ name: "description", label: REBUILT.t("habits.description"), value: editing ? editing.description || "" : "", optional: true, maxlength: 120 })}
 
         <div class="field">
-          <span class="field__label" id="icon-label">الأيقونة</span>
+          <span class="field__label" id="icon-label">${REBUILT.t("habits.icon")}</span>
           <div class="icon-picker" id="icon-picker" role="radiogroup" aria-labelledby="icon-label">
             ${I.HABIT_ICONS.map(([key, label]) => `<button type="button" role="radio" class="icon-picker__btn ${key === selectedIcon ? "is-selected" : ""}" aria-checked="${key === selectedIcon}" aria-label="${label}" title="${label}" data-icon="${key}">${I.svg(key)}</button>`).join("")}
           </div>
         </div>
 
         <div class="field-row">
-          ${Components.inputField({ name: "xp", label: "مكافأة XP", type: "number", value: editing ? editing.xp : 20, min: 5, max: 100, step: 5, inputmode: "numeric" })}
-          ${Components.inputField({ name: "time", label: "وقت مفضّل", type: "time", value: editing && editing.time ? editing.time : "", optional: true })}
+          ${Components.inputField({ name: "xp", label: REBUILT.t("habits.xp_reward"), type: "number", value: editing ? editing.xp : 20, min: 5, max: 100, step: 5, inputmode: "numeric" })}
+          ${Components.inputField({ name: "time", label: REBUILT.t("habits.preferred_time"), type: "time", value: editing && editing.time ? editing.time : "", optional: true })}
         </div>
 
         <div class="field">
-          <span class="field__label" id="freq-label">التكرار</span>
+          <span class="field__label" id="freq-label">${REBUILT.t("habits.repeat")}</span>
           ${Components.segmented("freq", FREQS, freq)}
           <div class="weekday-picker" id="weekday-picker" ${freq === "custom" ? "" : "hidden"}>
             ${Data.WEEKDAY_LABELS.map((label, idx) => `<button type="button" class="weekday-picker__btn ${targetDays.includes(idx) ? "is-selected" : ""}" aria-pressed="${targetDays.includes(idx)}" data-day="${idx}">${label}</button>`).join("")}
@@ -116,13 +116,13 @@ REBUILT.Pages.habits = (function () {
         </div>
 
         <div class="modal__footer">
-          <button type="submit" class="btn btn--primary">${editing ? "حفظ التعديلات" : "إضافة العادة"}</button>
-          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-habit" data-id="${esc(editing.id)}">${I.svg("trash")}حذف</button>` : ""}
+          <button type="submit" class="btn btn--primary">${editing ? REBUILT.t("habits.save_changes") : REBUILT.t("habits.add_habit_2")}</button>
+          ${editing ? `<button type="button" class="btn btn--danger btn-spacer" data-action="delete-habit" data-id="${esc(editing.id)}">${REBUILT.t("habits.delete", { p1: I.svg("trash") })}</button>` : ""}
         </div>
       </form>`;
 
     REBUILT.Modal.open({
-      title: editing ? "تعديل العادة" : "عادة جديدة",
+      title: editing ? REBUILT.t("habits.edit_habit") : REBUILT.t("habits.new_habit_2"),
       body,
       onMount: (modal) => {
         let icon = selectedIcon;
@@ -162,11 +162,11 @@ REBUILT.Pages.habits = (function () {
           const title = (fd.get("title") || "").toString().trim();
           const freqType = Components.segmentedValue(modal, "freq") || "daily";
           let ok = true;
-          if (!title) { Components.setFieldError(modal, "title", "اكتب اسم للعادة."); ok = false; }
+          if (!title) { Components.setFieldError(modal, "title", REBUILT.t("habits.enter_a_name_for_the")); ok = false; }
           if (freqType === "custom" && days.length === 0) {
             const f = modal.querySelector('[data-field="days"]');
             f.classList.add("is-invalid");
-            f.querySelector("[data-err-text]").textContent = "اختار يوم واحد على الأقل.";
+            f.querySelector("[data-err-text]").textContent = REBUILT.t("habits.pick_at_least_one_day");
             ok = false;
           }
           if (!ok) return;

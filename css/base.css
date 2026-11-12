@@ -36,8 +36,8 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(640px 420px at 92% -10%, rgba(253, 102, 43, 0.085), transparent 62%),
-    radial-gradient(520px 380px at 8% 108%, rgba(255, 229, 4, 0.05), transparent 60%);
+    radial-gradient(640px 420px at 92% -10%, rgba(var(--orange-rgb), 0.085), transparent 62%),
+    radial-gradient(520px 380px at 8% 108%, rgba(var(--yellow-rgb), 0.05), transparent 60%);
 }
 
 h1, h2, h3, h4, p, figure, blockquote { margin: 0; }
@@ -48,7 +48,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
 
-::selection { background: rgba(255, 229, 4, 0.28); color: var(--ink); }
+::selection { background: var(--selection); color: var(--ink); }
 
 :focus { outline: none; }
 :focus-visible {
@@ -107,11 +107,11 @@ button { cursor: pointer; }
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
-  color: var(--brand-orange);
+  color: var(--orange-ink);
 }
 .muted { color: var(--ink-soft); }
 .faint { color: var(--ink-faint); }
-.text-brand { color: var(--primary); }
+.text-brand { color: var(--primary-ink); }
 .nowrap { white-space: nowrap; }
 bdi, .ltr { unicode-bidi: isolate; }
 

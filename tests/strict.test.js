@@ -168,6 +168,7 @@ function boot(o) {
   sandbox.localStorage = memStore(o.cache);
   if (o.client !== null) sandbox.supabase = { createClient: () => o.client || makeClient() };
   vm.createContext(sandbox);
+  require("./_i18n-env").installI18n(sandbox);
   const run = (file, patch) => vm.runInContext(patch ? patch(read(file)) : read(file), sandbox, { filename: file });
   // What the development profile holds in the repository changes over time (empty now, filled when the site is wired to REBUILT-Dev):
   // a test therefore sets it explicitly — filled with made-up values (configured) or blank — by patching the SOURCE it loads.
@@ -729,6 +730,7 @@ function loadData(startMs) {
   const sandbox = { console, Date: FakeDate };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
+  require("./_i18n-env").installI18n(sandbox);
   vm.runInContext(read("js/data.js"), sandbox, { filename: "js/data.js" });
   return { Data: sandbox.REBUILT.Data, set(ms) { nowMs = ms; } };
 }

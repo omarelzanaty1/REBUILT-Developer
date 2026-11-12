@@ -20,7 +20,7 @@ REBUILT.Auth = (function () {
 
   /** Shortest password accepted. Keep in step with Supabase → Authentication → Password → minimum length. */
   const MIN_PASSWORD_LENGTH = 8;
-  const MIN_PASSWORD_MESSAGE = "الباسورد لازم يكون " + MIN_PASSWORD_LENGTH + " حروف على الأقل.";
+  const minPasswordMessage = () => REBUILT.t("auth.your_password_must_be_at") + MIN_PASSWORD_LENGTH + REBUILT.t("auth.characters");
 
   function validateEmail(email) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
@@ -28,30 +28,30 @@ REBUILT.Auth = (function () {
 
   function validateSignUp({ name, email, password, confirmPassword }) {
     const errors = {};
-    if (!name || !name.trim()) errors.name = "محتاجين اسمك.";
-    if (!validateEmail(email)) errors.email = "الإيميل مش صحيح.";
-    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = MIN_PASSWORD_MESSAGE;
-    if (password !== confirmPassword) errors.confirmPassword = "الباسورد وتأكيده مش متطابقين.";
+    if (!name || !name.trim()) errors.name = REBUILT.t("auth.we_need_your_name");
+    if (!validateEmail(email)) errors.email = REBUILT.t("auth.that_email_doesn_t_look");
+    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = minPasswordMessage();
+    if (password !== confirmPassword) errors.confirmPassword = REBUILT.t("auth.the_password_and_its_confirmation");
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
   function validateSignIn({ email, password }) {
     const errors = {};
-    if (!validateEmail(email)) errors.email = "الإيميل مش صحيح.";
-    if (!password) errors.password = "اكتب الباسورد.";
+    if (!validateEmail(email)) errors.email = REBUILT.t("auth.that_email_doesn_t_look");
+    if (!password) errors.password = REBUILT.t("auth.enter_your_password");
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
   function validateEmailOnly({ email }) {
     const errors = {};
-    if (!validateEmail(email)) errors.email = "الإيميل مش صحيح.";
+    if (!validateEmail(email)) errors.email = REBUILT.t("auth.that_email_doesn_t_look");
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
   function validateNewPassword({ password, confirmPassword }) {
     const errors = {};
-    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = MIN_PASSWORD_MESSAGE;
-    if (password !== confirmPassword) errors.confirmPassword = "الباسورد وتأكيده مش متطابقين.";
+    if (!password || password.length < MIN_PASSWORD_LENGTH) errors.password = minPasswordMessage();
+    if (password !== confirmPassword) errors.confirmPassword = REBUILT.t("auth.the_password_and_its_confirmation");
     return { valid: Object.keys(errors).length === 0, errors };
   }
 
@@ -77,16 +77,16 @@ REBUILT.Auth = (function () {
     const errors = {};
     const normalized = normalizeCode(code);
     if (normalized.length < CODE_MIN_LENGTH || normalized.length > CODE_MAX_LENGTH) {
-      errors.code = "اكتب الكود كامل زي ما وصلك على الإيميل (أرقام بس).";
+      errors.code = REBUILT.t("auth.enter_the_full_code_exactly");
     }
     return { valid: Object.keys(errors).length === 0, errors, code: normalized };
   }
 
   /** Arabic count phrase for "attempts" (1 → محاولة واحدة، 2 → محاولتين، 3–10 → N محاولات). */
   function attemptsPhrase(n) {
-    if (n === 1) return "محاولة واحدة";
-    if (n === 2) return "محاولتين";
-    return n + (n >= 3 && n <= 10 ? " محاولات" : " محاولة");
+    if (n === 1) return REBUILT.t("auth.one_attempt");
+    if (n === 2) return REBUILT.t("auth.two_attempts");
+    return n + (n >= 3 && n <= 10 ? REBUILT.t("auth.attempts") : REBUILT.t("auth.attempts_2"));
   }
 
   /** Limits the app itself applies on top of Supabase's own (which stay authoritative). */
@@ -412,7 +412,7 @@ REBUILT.Auth = (function () {
     async resendConfirmation(email) {
       const addr = String(email || "").trim();
       const check = validateEmailOnly({ email: addr });
-      if (!check.valid) return { ok: false, error: check.errors.email || "اكتب الإيميل الصح الأول.", kind: "validation", code: "invalid_email", limited: false, retryAfter: 0 };
+      if (!check.valid) return { ok: false, error: check.errors.email || REBUILT.t("auth.enter_the_right_email_first"), kind: "validation", code: "invalid_email", limited: false, retryAfter: 0 };
       const gate = Confirm.canSend(addr);
       if (!gate.ok) return clientLimit(gate, "message");
       const sb = REBUILT.SupabaseClient.get();
@@ -483,7 +483,7 @@ REBUILT.Auth = (function () {
           const left = Recovery.noteWrong();
           if (left <= 0) return exhausted();
           res.attemptsLeft = left;
-          res.error = res.error + " فاضلك " + attemptsPhrase(left) + ".";
+          res.error = res.error + REBUILT.t("auth.attempts_left", { phrase: attemptsPhrase(left) });
         }
         return res;
       }
@@ -554,7 +554,7 @@ REBUILT.Auth = (function () {
       const sb = REBUILT.SupabaseClient.get();
       const { data: cur } = await sb.auth.getSession();
       if (!cur || !cur.session) {
-        return { ok: false, kind: "no_session", code: "no_session", limited: false, retryAfter: 0, error: "سجّل دخولك الأول، وبعدها اربط حساب Google." };
+        return { ok: false, kind: "no_session", code: "no_session", limited: false, retryAfter: 0, error: REBUILT.t("auth.sign_in_first_then_link") };
       }
       if (!(await googleEnabled())) return googleOff("link");
       const options = { queryParams: { prompt: "select_account" } };
@@ -628,14 +628,14 @@ REBUILT.Auth = (function () {
     const { data } = await sb.auth.getSession();
     const sess = data && data.session;
     if (!sess) {
-      return { ok: false, mode: "link", kind: "no_session", error: "الجلسة انتهت أثناء الربط. سجّل دخولك وجرّب تاني." };
+      return { ok: false, mode: "link", kind: "no_session", error: REBUILT.t("auth.your_session_ended_while_linking") };
     }
     if (r.uid && sess.user.id !== r.uid) {
-      return { ok: false, mode: "link", kind: "session_changed", error: "الحساب اللي رجع بعد Google مختلف عن الحساب اللي بدأت منه، فمش هنعتبر الربط اتم. اتأكد إنك داخل على حسابك وجرّب تاني." };
+      return { ok: false, mode: "link", kind: "session_changed", error: REBUILT.t("auth.the_account_that_came_back") };
     }
     const ids = await SupabaseProvider.getIdentities();
     if (!ids.ok || !ids.identities.some((i) => i.provider === "google")) {
-      return { ok: false, mode: "link", kind: "link_unconfirmed", error: "مقدرناش نتأكد إن Google اتربط بحسابك. بص في «طرق تسجيل الدخول» في الإعدادات وجرّب تاني لو لسه مش مربوط." };
+      return { ok: false, mode: "link", kind: "link_unconfirmed", error: REBUILT.t("auth.we_couldn_t_confirm_that") };
     }
     return { ok: true, mode: "link" };
   }
@@ -666,7 +666,7 @@ REBUILT.Auth = (function () {
     try { await sb.auth.signOut({ scope: "local" }); } catch (err) { /* nothing was stored, nothing to undo */ }
   }
 
-  const LINK_USED_TEXT = "اللينك ده اتستخدم قبل كده أو انتهت صلاحيته.";
+  const linkUsedText = () => REBUILT.t("auth.this_link_was_already_used");
 
   /**
    * Called once at start-up, BEFORE the saved state is loaded (a session created by the link must not be adopted).
@@ -682,7 +682,7 @@ REBUILT.Auth = (function () {
     if (r.kind === "link-error") {
       emailLinkDone = true;
       cleanConfirmParams();
-      return { ok: false, kind: "expired", code: r.code, error: LINK_USED_TEXT };
+      return { ok: false, kind: "expired", code: r.code, error: linkUsedText() };
     }
     if (!REBUILT.SupabaseClient || !REBUILT.SupabaseClient.isAvailable()) { emailLinkDone = true; return null; }
     const sb = REBUILT.SupabaseClient.get();
@@ -715,13 +715,13 @@ REBUILT.Auth = (function () {
       }
       emailLinkDone = true;
       cleanConfirmParams();
-      return { ok: false, kind: "expired", code: c.code, error: LINK_USED_TEXT };
+      return { ok: false, kind: "expired", code: c.code, error: linkUsedText() };
     }
     emailLinkDone = true;
     cleanConfirmParams();
     const user = res && res.data ? res.data.user : null;
     await signOutHere(sb);
-    if (!confirmedAt(user)) return { ok: false, kind: "unconfirmed", error: "مقدرناش نتأكد إن الإيميل اتأكد." };
+    if (!confirmedAt(user)) return { ok: false, kind: "unconfirmed", error: REBUILT.t("auth.we_couldn_t_verify_that") };
     return { ok: true, kind: "confirmed", email: user.email || "" };
   }
 
@@ -749,83 +749,83 @@ REBUILT.Auth = (function () {
     const waitMatch = msg.match(/after\s+(\d+)\s+seconds?/);
     if (waitMatch && (status === 429 || code.indexOf("over_") === 0 || msg.includes("security purposes"))) {
       const secs = parseInt(waitMatch[1], 10) || DEFAULT_COOLDOWN_SECONDS;
-      return make("email_frequency", "استنى " + secs + " ثانية وبعدين اطلب الرسالة تاني.", { limited: true, retryAfter: secs });
+      return make("email_frequency", REBUILT.t("auth.wait") + secs + REBUILT.t("auth.seconds_then_request_the_email"), { limited: true, retryAfter: secs });
     }
     if (code === "over_email_send_rate_limit" || (status === 429 && msg.includes("email"))) {
-      return make("email_quota", "السيرفر وصل للحد الأقصى من رسائل الإيميل اللي يقدر يبعتها دلوقتي، وده مش بسببك. جرّب تاني بعد شوية، ولو فضلت كده كلّم صاحب الموقع.", { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
+      return make("email_quota", REBUILT.t("auth.the_server_has_reached_the"), { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
     }
     if (code === "over_request_rate_limit" || status === 429 || msg.includes("rate limit") || msg.includes("too many") || msg.includes("security purposes")) {
-      return make("rate", "طلبات كتير ورا بعض. استنى دقيقة وجرّب تاني.", { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
+      return make("rate", REBUILT.t("auth.too_many_requests_in_a"), { limited: true, retryAfter: DEFAULT_COOLDOWN_SECONDS });
     }
 
     // ---- Google sign-in / linking ("oauth" = signing in, "link" = attaching Google to the signed-in account) ----
     if (context === "oauth" || context === "link") {
       const linking = context === "link";
       if (code === "manual_linking_disabled" || msg.includes("manual linking") || msg.includes("linkuser")) {
-        return make("linking_disabled", "ربط Google لسه مش متفعّل في إعدادات السيرفر، فحسابك زي ما هو. كلّم صاحب الموقع.");
+        return make("linking_disabled", REBUILT.t("auth.linking_google_isn_t_enabled"));
       }
       if (code === "identity_already_exists" || /already linked|identity.*already/.test(msg)) {
-        return make("identity_taken", "حساب Google ده مرتبط بحساب REBUILT تاني، فمش هنربطه هنا ومش هندمج الحسابين تلقائي. لو ده حسابك التاني: سجّل خروج وادخل بيه من «المتابعة باستخدام Google». أو اختار حساب Google مختلف.");
+        return make("identity_taken", REBUILT.t("auth.that_google_account_is_already"));
       }
       if (code === "provider_disabled" || code === "oauth_provider_not_supported" || /provider.*(not enabled|disabled)|unsupported provider/.test(msg)) {
-        return make("provider_disabled", "الدخول بـ Google لسه مش متفعّل على السيرفر. كمّل بالإيميل والباسورد دلوقتي، وكلّم صاحب الموقع.");
+        return make("provider_disabled", REBUILT.t("auth.signing_in_with_google_isn"));
       }
       if (code === "provider_email_needs_verification" || msg.includes("unverified email")) {
-        return make("provider_email_unverified", "إيميل حساب Google ده مش متأكد عند Google، فمقدرناش نكمّل. أكّد الإيميل من Google وجرّب تاني.");
+        return make("provider_email_unverified", REBUILT.t("auth.that_google_account_s_email"));
       }
       if (code === "access_denied" || msg.includes("access denied") || msg.includes("denied") || msg.includes("cancel")) {
-        return make("oauth_cancelled", linking ? "لغيت ربط Google. حسابك زي ما هو ومفيش حاجة اتغيّرت." : "لغيت الدخول بـ Google. تقدر تجرّب تاني أو تكمّل بالإيميل.");
+        return make("oauth_cancelled", linking ? REBUILT.t("auth.you_cancelled_linking_google_your") : REBUILT.t("auth.you_cancelled_signing_in_with"));
       }
       if (code === "signup_disabled" || msg.includes("signups not allowed")) {
-        return make("signup_disabled", "إنشاء حسابات جديدة مقفول دلوقتي.");
+        return make("signup_disabled", REBUILT.t("auth.creating_new_accounts_is_turned"));
       }
       if (!(msg.includes("failed to fetch") || msg.includes("network") || String(e.name || "") === "AuthRetryableFetchError")) {
-        const tagged = code ? " (كود: " + code + ")" : status ? " (" + status + ")" : "";
-        return make("oauth_failed", (linking ? "ربط Google ما اكتملش. حسابك زي ما هو، جرّب تاني." : "الدخول بـ Google ما اكتملش. جرّب تاني أو كمّل بالإيميل.") + tagged);
+        const tagged = code ? REBUILT.t("auth.code") + code + ")" : status ? " (" + status + ")" : "";
+        return make("oauth_failed", (linking ? REBUILT.t("auth.linking_google_didn_t_finish") : REBUILT.t("auth.signing_in_with_google_didn")) + tagged);
       }
     }
 
     // ---- a recovery code that was typed (wrong, expired, already used or replaced by a newer one) ----
     if (context === "code" && (code === "otp_expired" || code === "otp_disabled" || msg.includes("expired") || msg.includes("invalid") || status === 403)) {
-      return make("code_invalid", "الكود غلط أو انتهت صلاحيته.");
+      return make("code_invalid", REBUILT.t("auth.the_code_is_wrong_or"));
     }
 
     // ---- e-mail provider problems ----
     if (code === "email_address_not_authorized" || msg.includes("email address not authorized")) {
-      return make("email_not_authorized", "الإيميل ده مش مسموح يستلم رسايل من السيرفر دلوقتي (إعدادات الإيميل في المشروع لسه مش مكتملة). كلّم صاحب الموقع.");
+      return make("email_not_authorized", REBUILT.t("auth.this_email_isn_t_allowed"));
     }
     if (msg.includes("error sending") && msg.includes("mail")) {
-      return make("email_send_failed", "السيرفر مقدرش يبعت رسالة الإيميل. جرّب تاني بعد شوية، ولو فضلت كده كلّم صاحب الموقع.");
+      return make("email_send_failed", REBUILT.t("auth.the_server_couldn_t_send"));
     }
 
     // ---- account / credentials ----
     if (code === "user_already_exists" || code === "email_exists" || msg.includes("user already registered") || msg.includes("already been registered")) {
-      return make("exists", "الإيميل ده مسجل قبل كده. جرّب تسجيل الدخول.");
+      return make("exists", REBUILT.t("auth.this_email_is_already_registered"));
     }
     if (code === "email_address_invalid" || (msg.includes("email address") && msg.includes("invalid"))) {
-      return make("email_invalid", "الإيميل ده مش مقبول. اتأكد منه أو جرّب إيميل تاني.");
+      return make("email_invalid", REBUILT.t("auth.this_email_isn_t_accepted"));
     }
     if (code === "signup_disabled" || code === "email_provider_disabled" || msg.includes("signups not allowed") || msg.includes("signup is disabled")) {
-      return make("signup_disabled", "التسجيل بالإيميل مقفول دلوقتي.");
+      return make("signup_disabled", REBUILT.t("auth.signing_up_with_email_is"));
     }
-    if (code === "same_password" || msg.includes("different from the old")) return make("same_password", "اختار باسورد مختلف عن القديم.");
-    if (msg.includes("at least") && msg.includes("characters")) return make("weak_password", MIN_PASSWORD_MESSAGE);
+    if (code === "same_password" || msg.includes("different from the old")) return make("same_password", REBUILT.t("auth.choose_a_password_different_from"));
+    if (msg.includes("at least") && msg.includes("characters")) return make("weak_password", minPasswordMessage());
     if (code === "weak_password" || (msg.includes("password") && (msg.includes("weak") || msg.includes("at least") || msg.includes("characters")))) {
-      return make("weak_password", "الباسورد مش قوي كفاية. جرّب باسورد أطول.");
+      return make("weak_password", REBUILT.t("auth.that_password_isn_t_strong"));
     }
-    if (code === "otp_expired" || msg.includes("expired")) return make("expired", "اللينك أو الكود انتهت صلاحيته. اطلب واحد جديد.");
-    if (msg.includes("auth session missing") || code === "session_not_found") return make("no_session", "الجلسة انتهت. اطلب كود جديد لاستعادة الباسورد.");
-    if (code === "invalid_credentials" || msg.includes("invalid login credentials")) return make("credentials", "الإيميل أو الباسورد غلط.");
-    if (code === "email_not_confirmed" || msg.includes("email not confirmed")) return make("not_confirmed", "لازم تأكد بريدك الإلكتروني الأول عشان تسجّل دخولك. افتح رسالة التأكيد اللي بعتناها لك، أو اطلب رسالة جديدة.");
+    if (code === "otp_expired" || msg.includes("expired")) return make("expired", REBUILT.t("auth.the_link_or_code_has"));
+    if (msg.includes("auth session missing") || code === "session_not_found") return make("no_session", REBUILT.t("auth.the_session_ended_request_a"));
+    if (code === "invalid_credentials" || msg.includes("invalid login credentials")) return make("credentials", REBUILT.t("auth.wrong_email_or_password"));
+    if (code === "email_not_confirmed" || msg.includes("email not confirmed")) return make("not_confirmed", REBUILT.t("auth.you_need_to_confirm_your"));
 
     // ---- connection ----
     if (msg.includes("failed to fetch") || msg.includes("network") || String(e.name || "") === "AuthRetryableFetchError") {
-      return make("network", "مفيش اتصال بالنت دلوقتي.");
+      return make("network", REBUILT.t("auth.no_internet_connection_right_now"));
     }
 
     // ---- unknown: say so, and keep the server's code so the real cause can be found ----
-    const tag = code ? " (كود: " + code + ")" : status ? " (" + status + ")" : "";
-    return make("unknown", "حصلت مشكلة صغيرة. جرّب تاني." + tag);
+    const tag = code ? REBUILT.t("auth.code") + code + ")" : status ? " (" + status + ")" : "";
+    return make("unknown", REBUILT.t("auth.something_small_went_wrong_try") + tag);
   }
 
   /** The Egyptian-Arabic sentence for an auth error. */
@@ -838,8 +838,8 @@ REBUILT.Auth = (function () {
     const mins = Math.ceil(gate.waitSeconds / 60);
     const msg = what === "message";   // "ask for the confirmation e-mail again" instead of "ask for a code"
     const text = gate.reason === "cooldown"
-      ? "استنى " + gate.waitSeconds + (msg ? " ثانية وبعدين اطلب الرسالة تاني." : " ثانية وبعدين اطلب كود تاني.")
-      : (msg ? "طلبت رسايل كتير. جرّب تاني بعد حوالي " + mins + " دقيقة." : "طلبت أكواد كتير. جرّب تاني بعد حوالي " + mins + " دقيقة.");
+      ? REBUILT.t("auth.wait") + gate.waitSeconds + (msg ? REBUILT.t("auth.seconds_then_request_the_email") : REBUILT.t("auth.seconds_then_request_a_new"))
+      : (msg ? REBUILT.t("auth.you_ve_requested_too_many") + mins + REBUILT.t("auth.minutes") : REBUILT.t("auth.you_ve_requested_too_many_2") + mins + REBUILT.t("auth.minutes"));
     return { ok: false, error: text, kind: "client_" + gate.reason, code: "client_rate_limit", limited: true, retryAfter: gate.waitSeconds };
   }
 
@@ -848,7 +848,7 @@ REBUILT.Auth = (function () {
       ok: false,
       kind: "attempts_exhausted",
       code: "client_attempts",
-      error: "جرّبت كذا مرة والكود غلط. اطلب كود جديد وجرّب بيه.",
+      error: REBUILT.t("auth.you_ve_tried_a_few"),
       exhausted: true,
       limited: false,
       retryAfter: 0,
@@ -878,7 +878,7 @@ REBUILT.Auth = (function () {
       const known = (state.user.email || "").trim().toLowerCase();
       const attempt = (email || "").trim().toLowerCase();
       if (!known || known !== attempt) {
-        return { ok: false, error: "مفيش حساب محلي متسجل بالإيميل ده على الجهاز ده." };
+        return { ok: false, error: REBUILT.t("auth.there_s_no_local_account") };
       }
       state.meta.hasLocalAccount = true;
       return { ok: true, session: { localOnly: true } };
@@ -889,28 +889,28 @@ REBUILT.Auth = (function () {
     },
 
     async resendConfirmation() {
-      return { ok: false, error: "مفيش سيرفر متصل دلوقتي، فمفيش رسالة تأكيد تتبعت.", kind: "local", code: "local_mode", limited: false, retryAfter: 0 };
+      return { ok: false, error: REBUILT.t("auth.no_server_is_connected_right"), kind: "local", code: "local_mode", limited: false, retryAfter: 0 };
     },
 
     /* No server → no e-mail can be sent and no password exists to change.
        Say so honestly instead of pretending. */
     async requestPasswordReset() {
-      return { ok: false, localOnly: true, error: "الوضع المحلي مفيهوش باسورد على سيرفر، فمفيش رسالة هتتبعت." };
+      return { ok: false, localOnly: true, error: REBUILT.t("auth.local_mode_has_no_server") };
     },
     async verifyRecoveryCode() {
-      return { ok: false, localOnly: true, error: "الوضع المحلي مفيهوش كود تحقق، لأن مفيش سيرفر يبعته." };
+      return { ok: false, localOnly: true, error: REBUILT.t("auth.local_mode_has_no_verification") };
     },
     async updatePassword() {
-      return { ok: false, localOnly: true, error: "تغيير الباسورد محتاج حساب متصل بالسيرفر." };
+      return { ok: false, localOnly: true, error: REBUILT.t("auth.changing_your_password_needs_an") };
     },
     async signInWithGoogle() {
-      return { ok: false, localOnly: true, error: "الدخول بـ Google محتاج اتصال بسيرفر REBUILT، وهو مش متاح دلوقتي." };
+      return { ok: false, localOnly: true, error: REBUILT.t("auth.signing_in_with_google_needs") };
     },
     async linkGoogle() {
-      return { ok: false, localOnly: true, error: "ربط Google محتاج حساب متصل بالسيرفر." };
+      return { ok: false, localOnly: true, error: REBUILT.t("auth.linking_google_needs_an_account") };
     },
     async getIdentities() {
-      return { ok: false, localOnly: true, identities: [], error: "طرق تسجيل الدخول محتاجة حساب متصل بالسيرفر." };
+      return { ok: false, localOnly: true, identities: [], error: REBUILT.t("auth.sign_in_methods_need_an") };
     },
 
     async getSession(state) {
@@ -936,7 +936,7 @@ REBUILT.Auth = (function () {
       ok: false,
       kind: "backend_unavailable",
       code: "backend_unavailable",
-      error: "السيرفر مش متاح دلوقتي، فمش هينفع تسجّل دخول أو تعمل حساب. جرّب تاني بعد شوية.",
+      error: REBUILT.t("auth.the_server_isn_t_available"),
       limited: false,
       retryAfter: 0,
     });

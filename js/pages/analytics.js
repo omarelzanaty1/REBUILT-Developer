@@ -11,7 +11,7 @@ REBUILT.Pages = REBUILT.Pages || {};
 REBUILT.Pages.analytics = (function () {
   const { Charts, Data, Components, Icons: I } = REBUILT;
   const esc = Components.esc;
-  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const fmt = (n) => REBUILT.I18n.number(n);
   const MIN_DAYS = 3;
 
   function lastNDays(n) {
@@ -27,7 +27,7 @@ REBUILT.Pages.analytics = (function () {
   const weekday = (date) => Data.WEEKDAY_LABELS[new Date(date + "T00:00:00").getDay()];
 
   function header() {
-    return Components.pageHeader({ title: "الإحصائيات", sub: "أرقام حقيقية من نشاطك، مش تقديرات." });
+    return Components.pageHeader({ title: REBUILT.t("analytics.analytics"), sub: REBUILT.t("analytics.real_numbers_from_your_activity") });
   }
 
   function statTile(icon, label, value) {
@@ -42,15 +42,15 @@ REBUILT.Pages.analytics = (function () {
         <section class="card">
           ${Components.emptyState({
             icon: "chart",
-            title: "لسه بنجمّع بياناتك",
-            text: "محتاجين على الأقل 3 أيام نشاط علشان نطلعلك تحليل محترم.\nكمّل عاداتك ومهامك وارجع تاني.",
+            title: REBUILT.t("analytics.we_re_still_collecting_your"),
+            text: REBUILT.t("analytics.we_need_at_least_3"),
             actions: [
-              { label: "العادات", nav: "habits", variant: "primary", icon: "flame" },
-              { label: "المهام", nav: "tasks", variant: "secondary", icon: "tasks" },
+              { label: REBUILT.t("analytics.habits"), nav: "habits", variant: "primary", icon: "flame" },
+              { label: REBUILT.t("analytics.tasks"), nav: "tasks", variant: "secondary", icon: "tasks" },
             ],
           })}
           <div class="data-meter">
-            <div class="data-meter__top"><span>الأيام المسجّلة</span><span class="num">${recorded}/${MIN_DAYS}</span></div>
+            <div class="data-meter__top"><span>${REBUILT.t("analytics.days_logged")}</span><span class="num">${recorded}/${MIN_DAYS}</span></div>
             <div class="progress"><span class="progress__fill" style="width:${Math.min(100, Math.round((recorded / MIN_DAYS) * 100))}%"></span></div>
           </div>
         </section>`;
@@ -98,71 +98,71 @@ REBUILT.Pages.analytics = (function () {
     return `
       ${header()}
 
-      <section class="stat-grid" aria-label="ملخص">
-        ${statTile("bolt", "XP الكلي", `<span class="num">${fmt(state.xp.total)}</span>`)}
-        ${statTile("flame", "أطول سلسلة", `<span class="num">${state.streak.longest}</span><small> يوم</small>`)}
-        ${statTile("tasks", "مهام مكتملة", `<span class="num">${fmt(tasksCompletedTotal)}</span>`)}
-        ${statTile("calendar", "أنشط يوم", bestDayLabel)}
+      <section class="stat-grid" aria-label="${REBUILT.t("analytics.summary")}">
+        ${statTile("bolt", REBUILT.t("analytics.total_xp"), `<span class="num">${fmt(state.xp.total)}</span>`)}
+        ${statTile("flame", REBUILT.t("analytics.longest_streak"), `<span class="num">${state.streak.longest}</span><small> ${REBUILT.t("analytics.days", { n: state.streak.longest })}</small>`)}
+        ${statTile("tasks", REBUILT.t("analytics.tasks_completed"), `<span class="num">${fmt(tasksCompletedTotal)}</span>`)}
+        ${statTile("calendar", REBUILT.t("analytics.most_active_day"), bestDayLabel)}
       </section>
 
       <div class="grid grid--2">
         <section class="card">
-          <div class="card__head"><div><h2 class="card__title">إنجاز العادات</h2><p class="card__sub">آخر 7 أيام (نسبة من العادات المجدولة)</p></div></div>
-          ${Charts.barChart(weeklyCompletion, { suffix: "%", showValues: true, ariaLabel: "نسبة إنجاز العادات آخر 7 أيام" })}
+          <div class="card__head"><div><h2 class="card__title">${REBUILT.t("analytics.habit_completion")}</h2><p class="card__sub">${REBUILT.t("analytics.last_7_days_percentage_of")}</p></div></div>
+          ${Charts.barChart(weeklyCompletion, { suffix: "%", showValues: true, ariaLabel: REBUILT.t("analytics.habit_completion_rate_last_7") })}
         </section>
         <section class="card">
-          <div class="card__head"><div><h2 class="card__title">XP</h2><p class="card__sub">آخر 7 أيام</p></div><span class="badge badge--brand num" dir="ltr">${fmt(weekXP)} XP</span></div>
-          ${Charts.barChart(weeklyXP, { showValues: true, ariaLabel: "الـXP المكتسب آخر 7 أيام" })}
+          <div class="card__head"><div><h2 class="card__title">XP</h2><p class="card__sub">${REBUILT.t("analytics.last_7_days")}</p></div><span class="badge badge--brand num" dir="ltr">${fmt(weekXP)} XP</span></div>
+          ${Charts.barChart(weeklyXP, { showValues: true, ariaLabel: REBUILT.t("analytics.xp_earned_last_7_days") })}
         </section>
       </div>
 
       <div class="grid grid--2">
         <section class="card">
-          <div class="card__head"><h2 class="card__title">نسبة الالتزام</h2></div>
+          <div class="card__head"><h2 class="card__title">${REBUILT.t("analytics.consistency_rate")}</h2></div>
           <div class="rate">
             <div class="rate__ring">
-              ${Charts.radialProgress({ pct: overallRate, size: 144, strokeWidth: 12, ariaLabel: "نسبة الالتزام بالعادات" })}
+              ${Charts.radialProgress({ pct: overallRate, size: 144, strokeWidth: 12, ariaLabel: REBUILT.t("analytics.habit_consistency_rate") })}
               <div class="rate__center"><span class="num">${overallRate}<small>%</small></span></div>
             </div>
-            <p class="rate__text">من <span class="num">${fmt(totalPossible)}</span> فرصة إنجاز مسجّلة، اتعمل منها <span class="num">${fmt(totalDone)}</span>.</p>
+            <p class="rate__text">${REBUILT.t("analytics.out_of")} <span class="num">${fmt(totalPossible)}</span> ${REBUILT.t("analytics.recorded_opportunities_you_completed")} <span class="num">${fmt(totalDone)}</span>.</p>
           </div>
         </section>
 
         <section class="card">
-          <div class="card__head"><h2 class="card__title">أفضل عاداتك</h2></div>
+          <div class="card__head"><h2 class="card__title">${REBUILT.t("analytics.your_best_habits")}</h2></div>
           ${topHabits.length
             ? `<ol class="ranked">${topHabits.map((t, i) => `
                 <li class="ranked__item">
                   <span class="ranked__rank num">${i + 1}</span>
                   <span class="ranked__icon">${I.svg(I.resolve(t.habit.icon, "flame"))}</span>
                   <span class="ranked__name">${esc(t.habit.title)}</span>
-                  <span class="ranked__count"><span class="num">${t.count}</span> مرة</span>
+                  <span class="ranked__count"><span class="num">${t.count}</span> ${REBUILT.t("analytics.times", { n: t.count })}</span>
                 </li>`).join("")}</ol>`
-            : Components.emptyState({ compact: true, icon: "flame", text: "لسه مفيش عادة اتكررت كفاية." })}
+            : Components.emptyState({ compact: true, icon: "flame", text: REBUILT.t("analytics.no_habit_has_repeated_enough") })}
         </section>
       </div>
 
       <div class="grid grid--2">
         <section class="card">
-          <div class="card__head"><h2 class="card__title">آخر 30 يوم</h2></div>
+          <div class="card__head"><h2 class="card__title">${REBUILT.t("analytics.last_30_days")}</h2></div>
           <ul class="facts">
-            <li><span>${I.svg("repeat")}عادات اتعملت</span><strong class="num">${fmt(monthCompleted)}</strong></li>
-            <li><span>${I.svg("bolt")}XP اتكسب</span><strong class="num" dir="ltr">${fmt(monthXP)}</strong></li>
-            <li><span>${I.svg("tasks")}مهام الأسبوع ده</span><strong class="num">${fmt(tasksCompletedWeek)}</strong></li>
+            <li><span>${REBUILT.t("analytics.habits_done", { p1: I.svg("repeat") })}</span><strong class="num">${fmt(monthCompleted)}</strong></li>
+            <li><span>${REBUILT.t("analytics.xp_earned", { p1: I.svg("bolt") })}</span><strong class="num" dir="ltr">${fmt(monthXP)}</strong></li>
+            <li><span>${REBUILT.t("analytics.tasks_this_week", { p1: I.svg("tasks") })}</span><strong class="num">${fmt(tasksCompletedWeek)}</strong></li>
           </ul>
         </section>
         <section class="card">
           <div class="card__head">
-            <h2 class="card__title">الأهداف</h2>
-            <button type="button" class="card__link" data-nav="goals">إدارة ${I.svg("chevronLeft", { size: 14 })}</button>
+            <h2 class="card__title">${REBUILT.t("analytics.goals")}</h2>
+            <button type="button" class="card__link" data-nav="goals">${REBUILT.t("analytics.manage", { p1: I.svg("chevronLeft", { size: 14 }) })}</button>
           </div>
           ${goalStats.total
             ? `<ul class="facts">
-                <li><span>${I.svg("target")}شغّالة</span><strong class="num">${goalStats.active}</strong></li>
-                <li><span>${I.svg("trophy")}اتحققت</span><strong class="num">${goalStats.done}</strong></li>
-                <li><span>${I.svg("trend")}متوسط التقدّم</span><strong class="num">${goalStats.avgProgress}%</strong></li>
+                <li><span>${REBUILT.t("analytics.active", { p1: I.svg("target") })}</span><strong class="num">${goalStats.active}</strong></li>
+                <li><span>${REBUILT.t("analytics.achieved", { p1: I.svg("trophy") })}</span><strong class="num">${goalStats.done}</strong></li>
+                <li><span>${REBUILT.t("analytics.average_progress", { p1: I.svg("trend") })}</span><strong class="num">${goalStats.avgProgress}%</strong></li>
               </ul>`
-            : Components.emptyState({ compact: true, icon: "target", text: "ضيف هدف علشان تتابع تقدّمه هنا.", actions: [{ label: "هدف جديد", action: "open-add-goal", icon: "plus" }] })}
+            : Components.emptyState({ compact: true, icon: "target", text: REBUILT.t("analytics.add_a_goal_to_track"), actions: [{ label: REBUILT.t("analytics.new_goal"), action: "open-add-goal", icon: "plus" }] })}
         </section>
       </div>
     `;

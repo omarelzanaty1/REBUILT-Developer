@@ -81,7 +81,7 @@ REBUILT.Charts = (function () {
       })
       .join("");
 
-    const aria = esc(opts.ariaLabel || "رسم بياني بالأعمدة");
+    const aria = esc(opts.ariaLabel || REBUILT.t("common.bar_chart"));
     return `
       <svg class="bar-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${aria}" style="direction:ltr">
         <defs>
