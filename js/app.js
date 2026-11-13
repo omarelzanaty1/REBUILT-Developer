@@ -184,6 +184,10 @@ REBUILT.App = (function () {
   }
 
   async function init() {
+    // The dictionaries are many small files. Before the first word is drawn make sure the ones for the saved language are all
+    // here and from the same build — what is missing or stale is fetched again (a no-op, no request, when all is well).
+    // It never rejects; if it gives up the app draws with the fallback and redraws by itself when the files arrive.
+    try { await REBUILT.I18n.ready(); } catch (err) { console.warn("REBUILT: could not check the dictionaries", err); }
     REBUILT.I18n.translateStatic(); // the static markup of index.html (skip link, nav label, page description, corner tag)
     REBUILT.I18n.onChange(repaint);
     REBUILT.Theme.onChange(repaint);

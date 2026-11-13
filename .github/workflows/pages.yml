@@ -4,9 +4,12 @@
 #
 #   test    unit (auth + strict-mode) + repository-guard + release-script tests; a failing test stops everything after it
 #   build   assembles the site from the files listed in scripts/site-files.txt ONLY (never supabase/, tests/,
-#           docs/, scripts/, .github/), checks it, and uploads it as the Pages artifact
+#           docs/, scripts/, .github/), stamps this commit onto every script / stylesheet address of the published
+#           index.html (scripts/stamp-build.js: one deployment's files can never be mixed with another's by the
+#           browser cache), checks it, and uploads it as the Pages artifact
 #   deploy  publishes that artifact to this repository's own Pages site (needs the one-time setting below)
-#   verify  fetches the published address and checks the build marker, and that nothing private is served
+#   verify  fetches the published address and checks the build marker (which now carries this commit), that the files
+#           of THIS commit are the ones served, and that nothing private is served
 #
 # This workflow cannot reach the official site: that lives in another repository and is only changed by
 # scripts/release.sh, after explicit approval (docs/ENVIRONMENTS.md). The token below is limited to this repository.
@@ -44,8 +47,10 @@ jobs:
         run: node tests/dev-repo.test.js
       - name: Release-script tests (local throw-away repositories)
         run: node tests/release.test.js
-      - name: Unit tests — translations (every key in every language, no text left in the code)
+      - name: Unit tests — translations (every key in every language, no text left in the code, dictionaries checked and re-fetched before the first screen)
         run: node tests/i18n.test.js
+      - name: Unit tests — build stamp (one deployment's files stay together in the browser cache)
+        run: node tests/stamp-build.test.js
 
   build:
     needs: test
@@ -62,6 +67,7 @@ jobs:
           touch _site/.nojekyll
           test ! -e _site/CNAME   # the official domain must never be published from here
           for d in supabase tests docs scripts .github; do test ! -e "_site/$d" || { echo "::error::_site/$d must not be published"; exit 1; }; done
+          node scripts/stamp-build.js _site "${GITHUB_SHA::7}"
           marker="$(sed -n 's/.*<meta name="rebuilt-build" content="\([^"]*\)".*/\1/p' _site/index.html | head -n 1)"
           test -n "$marker" || { echo "::error::no build marker in index.html"; exit 1; }
           echo "marker=$marker" >> "$GITHUB_OUTPUT"
@@ -104,6 +110,14 @@ jobs:
             sleep 10
           done
           [ "$ok" = 1 ] || { echo "::error::$URL does not serve build marker '$MARKER'"; exit 1; }
+          SHA7="${GITHUB_SHA::7}"
+          html="$(curl -fsS -H 'Cache-Control: no-cache' "$URL?v=$GITHUB_SHA")"
+          echo "$html" | grep -q "js/i18n.js?v=$SHA7" || { echo "::error::the served index.html does not reference this commit's files (js/i18n.js?v=$SHA7)"; exit 1; }
+          for f in js/i18n.js js/app.js js/locales/en/common.js js/locales/ar/common.js css/tokens.css; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$URL$f?v=$SHA7")"
+            echo "GET /$f?v=$SHA7 -> $code"
+            [ "$code" = "200" ] || { echo "::error::/$f must be served (got $code)"; exit 1; }
+          done
           for p in CNAME supabase/README.md tests/auth.test.js docs/ENVIRONMENTS.md scripts/release.sh .github/workflows/pages.yml; do
             code="$(curl -s -o /dev/null -w '%{http_code}' "$URL$p")"
             echo "GET /$p -> $code"

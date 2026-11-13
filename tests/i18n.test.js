@@ -6,6 +6,9 @@
      3. no Arabic text is left inside the code (everything the person reads
         lives in js/locales/); a line may carry  // i18n-ignore  with a reason
      4. the core: plural / number / date / time formats, fallback to Arabic
+     5. a person never sees a key: an unknown key shows nothing (and is warned about once)
+     6. the dictionaries are CHECKED before the first screen (I18n.ready): a file that failed to load, or came from another
+        build, is fetched again; if it never arrives the app still draws (with the fallback) and redraws when it does
    Run:  node tests/i18n.test.js            (add --report to list every finding)
    ============================================================ */
 "use strict";
@@ -18,6 +21,8 @@ const ROOT = path.resolve(__dirname, "..");
 const REPORT = process.argv.includes("--report");
 const ARABIC = /[؀-ۿ]/;
 let passed = 0, failed = 0;
+const later = [];   // async tests run after the synchronous ones
+function testAsync(name, fn) { later.push([name, fn]); }
 function test(name, fn) {
   try { fn(); passed++; console.log("PASS " + name); }
   catch (e) { failed++; console.log("FAIL " + name + "\n     " + String(e.message).split("\n").join("\n     ")); }
@@ -27,9 +32,9 @@ const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) =
 const rel = (f) => path.relative(ROOT, f).split(path.sep).join("/");
 
 /* ---- load the core and every dictionary the way the browser does (index.html order) ---- */
-function load() {
+function load(skip, quiet) {
   const store = {};
-  const sandbox = { console, Intl, Date, JSON, Object, Array, Number, String, RegExp, Math };
+  const sandbox = { console: quiet ? { warn() {}, error() {}, log() {} } : console, Intl, Date, JSON, Object, Array, Number, String, RegExp, Math, setTimeout, clearTimeout, Promise, Set };
   sandbox.window = sandbox;
   sandbox.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
   const attrs = {};
@@ -39,8 +44,8 @@ function load() {
   run("js/prefs.js"); run("js/i18n.js");
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   const files = [...html.matchAll(/<script src="(js\/locales\/[^"]+)"/g)].map((m) => m[1]);
-  files.forEach(run);
-  return { sandbox, I: sandbox.REBUILT.I18n, files, attrs };
+  files.filter((f) => !(skip || []).includes(f)).forEach(run);
+  return { sandbox, I: sandbox.REBUILT.I18n, files, attrs, run };
 }
 
 const { sandbox, I, files: localeFiles } = load();
@@ -130,7 +135,7 @@ test("core: fallback to Arabic, then to the key; placeholders; plural; formats",
   I.add("ar", "zz", { a: "أهلاً {name}", n: (p, i) => i.plural(p.n, { one: "واحد", two: "اتنين", few: "{n} حاجات", other: "{n} حاجة" }) });
   I.add("en", "zz", { n: (p, i) => i.plural(p.n, { one: "one thing", other: "{n} things" }) });
   assert.strictEqual(I.t("zz.a", { name: "عمر" }), "أهلاً عمر");
-  assert.strictEqual(I.t("zz.nope"), "zz.nope");
+  assert.strictEqual(I.t("zz.nope"), "", "an unknown key shows nothing — never the key itself");
   assert.strictEqual(I.t("zz.n", { n: 1 }), "واحد");
   assert.strictEqual(I.t("zz.n", { n: 3 }), "3 حاجات");
   I.setLang("en");
@@ -150,5 +155,106 @@ test("core: fallback to Arabic, then to the key; placeholders; plural; formats",
   assert.strictEqual(sandbox.REBUILT.Prefs.read().lang, "ar", "the choice is remembered on the device");
 });
 
-console.log("\n" + passed + " passed, " + failed + " failed (of " + (passed + failed) + ")");
-process.exit(failed ? 1 : 0);
+/* ---- a person never sees a key ---- */
+test("an unknown key shows nothing and is warned about once; an untranslated one shows Arabic and is warned about once", () => {
+  const warnings = [];
+  const ctx = load([], true);
+  ctx.sandbox.console = { warn: (m) => warnings.push(String(m)), error() {}, log() {} };
+  const J = ctx.I;
+  J.setLang("en");
+  assert.strictEqual(J.t("no.such_key"), ""); assert.strictEqual(J.t("no.such_key"), ""); assert.strictEqual(J.t("no.such_key"), "");
+  assert.strictEqual(warnings.filter((w) => /no\.such_key/.test(w)).length, 1, "one console warning per key, not one per draw");
+  assert.ok(J.missing().includes("*|no.such_key"));
+  J.add("ar", "zz2", { only_ar: "عربي فقط" });
+  assert.strictEqual(J.t("zz2.only_ar"), "عربي فقط");
+  assert.strictEqual(warnings.filter((w) => /zz2\.only_ar/.test(w)).length, 1);
+  // no real key of the app may come back as itself in either language
+  ["ar", "en"].forEach((l) => { J.setLang(l); J.keysOf("ar").slice(0, 400).forEach((k) => { const v = J.t(k, { n: 1, name: "x" }); assert.ok(v !== k && v !== "", l + ": " + k + " drew as " + JSON.stringify(v)); }); });
+});
+
+/* ---- the dictionary list in the engine is the folder on disk ---- */
+test("I18n.NAMESPACES lists exactly the dictionary files of every language", () => {
+  LANGS.forEach((l) => {
+    const onDisk = fs.readdirSync(path.join(ROOT, "js/locales", l)).map((f) => f.replace(/\.js$/, "")).sort();
+    assert.deepStrictEqual(Array.from(I.NAMESPACES).sort(), onDisk, "I18n.NAMESPACES (js/i18n.js) and js/locales/" + l + "/ disagree");
+  });
+});
+
+/* ---- the check before the first screen ---- */
+const urlFile = (url) => { const m = /(js\/locales\/[a-z]+\/[a-z]+\.js)/.exec(url); return m && m[1]; };
+function savedLang(ctx, code) { ctx.sandbox.REBUILT.Prefs.write({ lang: code }); ctx.I.init(); }
+
+testAsync("ready(): nothing to fetch when everything is already there (the normal case costs nothing)", async () => {
+  const ctx = load([], true); savedLang(ctx, "en");
+  let calls = 0; ctx.I._loader.load = () => { calls++; return Promise.resolve(); };
+  const r = await ctx.I.ready();
+  assert.ok(r.ok); assert.strictEqual(calls, 0);
+});
+
+testAsync("ready(): a dictionary file that failed once is fetched again (cache-busted) BEFORE the first screen, so nothing is half-translated", async () => {
+  const skip = "js/locales/en/habits.js";
+  const ctx = load([skip], true); savedLang(ctx, "en");
+  assert.strictEqual(ctx.I.t("habits.today"), "النهارده", "before the check the missing file shows Arabic — the symptom");
+  const asked = []; let fail = 1;
+  ctx.I._loader.load = (url) => { asked.push(url); if (fail-- > 0) return Promise.reject(new Error("503")); ctx.run(urlFile(url)); return Promise.resolve(); };
+  const r = await ctx.I.ready({ rounds: 3, budgetMs: 3000 });
+  assert.ok(r.ok, "ready() must finish with a complete dictionary: " + JSON.stringify(r.left));
+  assert.ok(asked.length === 2 && asked.every((u) => urlFile(u) === skip), "it fetched exactly the missing file, twice: " + asked.join(" "));
+  assert.ok(/[?&]r=/.test(asked[1]) || /[?&]r=/.test(asked[0]), "the retry bypasses any cached copy");
+  assert.strictEqual(ctx.I.t("habits.today"), "Today");
+  assert.strictEqual(ctx.I.problems().length, 0, "no namespace is missing or out of step any more");
+  assert.ok(ctx.I.raw("en", "habits.today") !== undefined && ctx.I.keysOf("en").length === ctx.I.keysOf("ar").length, "English is complete again");
+});
+
+testAsync("ready(): a file from ANOTHER BUILD (its keys differ from its twin) is detected and fetched again, in both languages", async () => {
+  const ctx = load([], true); savedLang(ctx, "en");
+  const real = ctx.I.keysOf("en").filter((k) => k.startsWith("tasks."));
+  ctx.I.add("en", "tasks", { an_old_key_nobody_uses_any_more: "old" });   // what a stale cached copy would leave behind (replaces the key list of the file)
+  assert.ok(ctx.I.problems().some((p) => p.ns === "tasks"), "the mismatch is noticed");
+  const asked = []; ctx.I._loader.load = (url) => { asked.push(urlFile(url)); ctx.run(urlFile(url)); return Promise.resolve(); };
+  const r = await ctx.I.ready({ rounds: 2, budgetMs: 3000 });
+  assert.ok(r.ok, JSON.stringify(r.left));
+  assert.ok(asked.includes("js/locales/en/tasks.js") && asked.includes("js/locales/ar/tasks.js"), "either side may be the stale one: " + asked.join(","));
+  assert.strictEqual(ctx.I.keysOf("en").filter((k) => k.startsWith("tasks.") && k !== "tasks.an_old_key_nobody_uses_any_more").length, real.length);
+});
+
+testAsync("ready(): if a file never arrives the app still draws (Arabic fallback, never a key), then redraws by itself when it does", async () => {
+  const skip = "js/locales/en/goals.js";
+  const ctx = load([skip], true); savedLang(ctx, "en");
+  ctx.I._loader.load = () => Promise.reject(new Error("offline"));
+  const t0 = Date.now();
+  const r = await ctx.I.ready({ rounds: 2, budgetMs: 1500 });
+  assert.ok(!r.ok && r.left.some((p) => p.ns === "goals" && p.lang === "en"), "it reports what is missing instead of pretending");
+  assert.ok(Date.now() - t0 < 3000, "it gives up in a bounded time");
+  const key = ctx.I.keysOf("ar").find((k) => k.startsWith("goals."));
+  assert.ok(ctx.I.t(key) && ctx.I.t(key) !== key, "the fallback is a real sentence, not a key");
+  let redraws = 0; ctx.I.onChange(() => { redraws++; });
+  ctx.run(skip);                                   // the file finally arrives (the background retry)
+  await new Promise((ok) => setTimeout(ok, 120));
+  assert.strictEqual(redraws, 1, "the screen is redrawn once, by itself");
+  assert.ok(ctx.I.isComplete("en") && ctx.I.problems().length === 0);
+});
+
+testAsync("setLang(): a dictionary that was lost while the app was in the OTHER language is fetched again when it is chosen, and the screen repaints", async () => {
+  const skip = "js/locales/en/goals.js";
+  const ctx = load([skip], true); savedLang(ctx, "ar");
+  assert.ok((await ctx.I.ready()).ok, "in Arabic nothing is missing: the English file is not needed yet");
+  const asked = []; ctx.I._loader.load = (url) => { asked.push(urlFile(url)); ctx.run(urlFile(url)); return Promise.resolve(); };
+  let draws = 0; ctx.I.onChange(() => { draws++; });
+  ctx.I.setLang("en");
+  assert.strictEqual(draws, 1, "the immediate redraw");
+  await new Promise((ok) => setTimeout(ok, 300));
+  assert.deepStrictEqual(asked, [skip], "exactly the lost file was fetched");
+  assert.ok(ctx.I.isComplete("en") && ctx.I.problems().length === 0);
+  assert.ok(draws >= 2, "…and the screen was redrawn once the file arrived (" + draws + ")");
+  assert.ok(!ctx.I.missing().some((k) => k.startsWith("en|goals.")), "missing() no longer lists what has arrived");
+});
+
+(async () => {
+  for (const [name, fn] of later) {
+    try { await fn(); passed++; console.log("PASS " + name); }
+    catch (e) { failed++; console.log("FAIL " + name + "\n     " + String(e && e.message).split("\n").join("\n     ")); }
+  }
+  console.log("\n" + passed + " passed, " + failed + " failed (of " + (passed + failed) + ")");
+  process.exit(failed ? 1 : 0);
+})();
