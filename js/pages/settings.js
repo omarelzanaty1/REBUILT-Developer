@@ -178,15 +178,24 @@ REBUILT.Pages.settings = (function () {
     if (btn) btn.addEventListener("click", () => startLink(container, btn));
   }
 
-  async function loadMethods(container) {
+  /* The last good answer, kept for THIS account only. The page is drawn again when the language or the theme changes: without it the block
+     would collapse to "Loading…" and grow back a moment later, and the whole page (the button just pressed included) would jump. */
+  let lastMethods = null; // { uid, res }
+
+  async function loadMethods(container, uid) {
     const box = container.querySelector("#signin-methods");
-    if (box) { box.setAttribute("aria-busy", "true"); box.innerHTML = `<p class="faint">${REBUILT.t("settings.loading_your_sign_in_methods")}</p>`; }
+    const known = uid && lastMethods && lastMethods.uid === uid ? lastMethods.res : null;
+    if (known) renderMethods(container, known); // same size as before; refreshed just below
+    else if (box) { box.setAttribute("aria-busy", "true"); box.innerHTML = `<p class="faint">${REBUILT.t("settings.loading_your_sign_in_methods")}</p>`; }
     let res;
     try {
       res = await REBUILT.Auth.getIdentities();
     } catch (err) {
       res = { ok: false, error: REBUILT.Messages.genericError() };
     }
+    if (res && res.ok && uid) lastMethods = { uid, res };
+    if (known && res && res.ok && JSON.stringify(known) === JSON.stringify(res)) return; // nothing changed: leave what is on screen alone
+    if (known && !(res && res.ok)) return;                                             // keep the good answer rather than swap it for an error
     renderMethods(container, res);
   }
 
@@ -227,12 +236,12 @@ REBUILT.Pages.settings = (function () {
           ? `<div class="notice notice--success" role="status">${I.svg("checkCircle")}<div>${REBUILT.t("settings.your_google_account_was_linked")}</div></div>`
           : `<div class="notice notice--danger" role="alert">${I.svg("alert")}<div>${esc(back.error)}</div></div>`;
       }
-      loadMethods(container);
+      loadMethods(container, state && state.user && state.user.id);
     }
 
     // Language and theme apply at once, on this device. The listeners in app.js redraw the screen.
     Components.bindSegmented(container, "pref-lang", (code) => REBUILT.I18n.setLang(code));
-    Components.bindSegmented(container, "pref-theme", (pref) => REBUILT.Theme.setPref(pref));
+    Components.bindSegmented(container, "pref-theme", (pref, btn) => REBUILT.Theme.setPref(pref, { origin: btn }));
 
     on("#sign-out-btn", "click", () => REBUILT.Actions.signOut());
     on("#motion-toggle", "change", (e) => REBUILT.Actions.updateSettings({ reduceMotion: e.target.checked }));

@@ -174,10 +174,15 @@ REBUILT.App = (function () {
   function repaint() {
     const app = document.getElementById("app");
     if (app && !app.hidden && state) {
+      const y = window.scrollY; // read BEFORE the shell is drawn again: while it is rebuilt the page is shorter and the browser clamps the scroll
       if (REBUILT.Modal.isOpen()) REBUILT.Modal.close(); // its words were written in the old language
       REBUILT.Shell.remount();
       REBUILT.Router.renderCurrent();
       REBUILT.Router.refreshTitle();
+      // The person is looking at the same spot (the theme button they just pressed stays under their finger). The page can be a little
+      // shorter until Router.renderCurrent has finished (its pages fill some parts in afterwards), so the position is put back only now —
+      // and "instant", because the page has smooth scrolling and a glide would itself be a visible jump.
+      window.scrollTo({ top: y, left: 0, behavior: "instant" });
     } else if (REBUILT.Gate && REBUILT.Gate.rerender) {
       REBUILT.Gate.rerender();
     }

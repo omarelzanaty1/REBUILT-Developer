@@ -115,6 +115,8 @@ const chrome = (page) => page.evaluate(() => {
     await page.screenshot({ path: SHOTS + "/welcome-en-dark.png" });
 
     await page.click('[data-pref-theme="light"]');
+    // the colours change as a circular reveal (js/theme.js): the new theme lands on the next frame, the circle then takes ~700 ms
+    await page.waitForFunction(() => document.documentElement.getAttribute("data-theme") === "light", null, { timeout: 2000 });
     a = await attrs(page);
     log("switching to light at once", a.theme === "light" && a.pref === "light", JSON.stringify(a));
     log("light: the page background is light", lum(await bg(page)) > 0.8, await bg(page));

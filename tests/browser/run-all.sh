@@ -7,7 +7,7 @@
 # Needs Playwright (see tests/browser/README.md). Exit status is non-zero if anything failed.
 set -u
 cd "$(dirname "$0")/../.."
-SUITES="${RB_ONLY:-local extra connected sw recovery otp google confirm channels strict i18n i18n_connected lang_boot}"
+SUITES="${RB_ONLY:-local extra connected sw recovery otp google confirm channels strict i18n i18n_connected lang_boot theme_reveal}"
 LOG="${RB_OUT:-${TMPDIR:-/tmp}/rebuilt-browser-out}/sweep"; mkdir -p "$LOG"
 fail=0
 echo "=== unit: node tests/auth.test.js"

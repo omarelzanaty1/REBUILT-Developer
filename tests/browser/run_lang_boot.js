@@ -1,5 +1,6 @@
 // LANGUAGE AT START-UP, with the browser's REAL HTTP cache — the "I chose English, refreshed, and some texts went back to Arabic" bug.
-//   node tests/browser/run_lang_boot.js            (RB_BUILD_REF=<git ref> tests that older commit instead of the working tree, unstamped — to see the bug come back)
+//   node tests/browser/run_lang_boot.js            (RB_BUILD_REF=<git ref> tests that commit instead of the working tree — unstamped, to see the old bug come back;
+//                                                   add RB_BUILD_ID=<id> to stamp it the way the workflow does, e.g. RB_BUILD_REF=e844afb RB_BUILD_ID=e844afb)
 //
 // Why a separate runner: the other browser suites serve the site through page.route(), and routing turns the browser's HTTP cache
 // OFF, so they never see what a person sees on a refresh. This one serves the site over HTTPS from a stand-in for GitHub Pages
@@ -23,7 +24,8 @@ const { stamp } = require(path.join(ROOT, "scripts/stamp-build.js"));
 const FAKE = fs.readFileSync(path.join(__dirname, "fake-supabase.js"), "utf8");
 const KNOWN_CHROME = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 const EXE = process.env.RB_CHROME || (fs.existsSync(KNOWN_CHROME) ? KNOWN_CHROME : undefined);
-const REF = process.env.RB_BUILD_REF || "";           // "" = the working tree, stamped the way the workflow does
+const REF = process.env.RB_BUILD_REF || "";           // "" = the working tree
+const STAMP = process.env.RB_BUILD_ID || (REF ? "" : "bbbbbbb");   // the build id stamped onto the site ("" = unstamped, like the commit that had the bug)
 
 const results = [];
 const log = (name, ok, detail) => { results.push({ name, ok }); console.log((ok ? "PASS " : "FAIL ") + name + (detail ? " — " + detail : "")); };
@@ -87,9 +89,9 @@ const settleApp = async (page) => { await page.waitForSelector("#app:not([hidden
   const work = path.join(OUT, "lang-boot"); fs.mkdirSync(work, { recursive: true });
   // the site as the workflow publishes it: files from site-files.txt, then the build stamp
   const build = (dir, ref, id) => { PS.assembleSite(ROOT, dir, ref); if (id) { const f = path.join(dir, "index.html"); fs.writeFileSync(f, stamp(fs.readFileSync(f, "utf8"), id).html); } return dir; };
-  const ID_NEW = "bbbbbbb", ID_OLD = "aaaaaaa";
-  const dirNow = build(path.join(work, "site-now"), REF || undefined, REF ? null : ID_NEW);
-  console.log(REF ? "BUILD UNDER TEST: " + REF + " (unstamped)" : "BUILD UNDER TEST: working tree, stamped ?v=" + ID_NEW);
+  const ID_NEW = STAMP, ID_OLD = "aaaaaaa";
+  const dirNow = build(path.join(work, "site-now"), REF || undefined, ID_NEW);
+  console.log("BUILD UNDER TEST: " + (REF || "working tree") + (ID_NEW ? ", stamped ?v=" + ID_NEW : " (unstamped)"));
   const srv = await PS.start({ dir: dirNow, fake: FAKE, outDir: work });
   const browser = await chromium.launch({ executablePath: EXE, args: srv.launchArgs });
 
@@ -285,8 +287,8 @@ const settleApp = async (page) => { await page.waitForSelector("#app:not([hidden
 
   /* ---------- K. a new deployment while the old one is cached ---------- */
   {
-    const dirA = build(path.join(work, "site-A"), "6323b01", REF ? null : ID_OLD);                       // the deployment before (the commit already published)
-    const dirB = build(path.join(work, "site-B"), REF || undefined, REF ? null : ID_NEW);   // the one going live now
+    const dirA = build(path.join(work, "site-A"), "6323b01", ID_NEW ? ID_OLD : null);                       // the deployment before (the commit already published)
+    const dirB = build(path.join(work, "site-B"), REF || undefined, ID_NEW);   // the one going live now
     srv.clearRules(); srv.setBuild(dirA, "A");
     const errors = []; const ctx = await newCtx({ prefs: { lang: "en", theme: "dark" } }); const page = await ctx.newPage(); watch(page, errors);
     await page.goto(srv.url); await ready(page);

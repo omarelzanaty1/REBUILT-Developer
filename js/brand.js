@@ -20,6 +20,17 @@ REBUILT.Brand = (function () {
     return `<img class="${cls || ""}" src="${BASE}${file}" alt="${alt === undefined ? "REBUILT" : alt}" ${extra || ""} decoding="async" />`;
   }
 
+  /* Both inks are fetched once, a moment after the page has loaded. A theme change then finds the other copy already in memory:
+     the new logo appears in the same frame as the new colours. Without this the new <img> is empty for a few milliseconds, the page
+     is shorter for that long, the browser clamps the scroll position, and the screen visibly jumps when the file arrives. */
+  const kept = [];
+  function preloadInks() {
+    ["rebuilt-lockup", "rebuilt-mark", "rebuilt-wordmark"].forEach((n) => ["", "-light"].forEach((v) => {
+      const im = new Image(); im.decoding = "async"; im.src = BASE + n + v + ".svg"; kept.push(im);
+    }));
+  }
+  if (document.readyState === "complete") setTimeout(preloadInks, 0); else window.addEventListener("load", () => setTimeout(preloadInks, 0), { once: true });
+
   /** Horizontal lockup: mark + REBUILT wordmark + "Build yourself". */
   const lockup = (cls) => img(withInk("rebuilt-lockup.svg"), cls, "REBUILT — Build yourself", 'width="690" height="166"');
   /** The R + stair mark on its own. */

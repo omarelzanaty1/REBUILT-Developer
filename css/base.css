@@ -131,3 +131,20 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
+
+/* ---------- Theme change: circular reveal (js/theme.js) ----------
+   While the class is on <html>, the browser keeps the OLD screen as a picture and shows the NEW one through a circle that
+   js/theme.js grows from the tapped button (clip-path: circle(), ~700 ms). The default cross-fade of a view transition is
+   switched off so the two pictures simply sit on top of each other; the circle is the only thing that moves. */
+:root.theme-reveal::view-transition { pointer-events: none; }            /* taps still reach the page under the picture */
+:root.theme-reveal::view-transition-old(root),
+:root.theme-reveal::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+:root.theme-reveal::view-transition-old(root) { z-index: 1; }
+:root.theme-reveal::view-transition-new(root) { z-index: 2; }
+/* No element's own colour transition may run under the circle: the new colours must be exactly the new theme's from the first frame. */
+:root.theme-reveal *, :root.theme-reveal *::before, :root.theme-reveal *::after { transition: none !important; }
+
+/* Fallback for a browser without view transitions: the colours of what is on screen cross-fade. */
+:root.theme-fade, :root.theme-fade *, :root.theme-fade *::before, :root.theme-fade *::after {
+  transition: background-color 420ms ease, color 420ms ease, border-color 420ms ease, fill 420ms ease, stroke 420ms ease, box-shadow 420ms ease !important;
+}

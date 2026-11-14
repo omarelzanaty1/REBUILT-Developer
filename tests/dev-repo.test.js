@@ -136,7 +136,7 @@ test("the documentation exists and names both repositories and both addresses", 
 });
 
 test("every browser runner and the sweep exist", () => {
-  ["run_local", "run_extra", "run_connected", "run_sw", "run_recovery", "run_otp", "run_google", "run_confirm", "run_channels", "run_strict", "run_i18n", "run_i18n_connected", "run_lang_boot"].forEach((n) => assert.ok(exists("tests/browser/" + n + ".js"), n + " missing"));
+  ["run_local", "run_extra", "run_connected", "run_sw", "run_recovery", "run_otp", "run_google", "run_confirm", "run_channels", "run_strict", "run_i18n", "run_i18n_connected", "run_lang_boot", "run_theme_reveal"].forEach((n) => assert.ok(exists("tests/browser/" + n + ".js"), n + " missing"));
   assert.ok(exists("tests/browser/run-all.sh") && exists("tests/browser/fake-supabase.js") && exists("tests/browser/_env.js"));
 });
 

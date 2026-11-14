@@ -293,7 +293,7 @@ REBUILT.Components = (function () {
           b.classList.toggle("is-selected", on);
           b.setAttribute("aria-checked", String(on));
         });
-        if (onChange) onChange(btn.dataset.value);
+        if (onChange) onChange(btn.dataset.value, btn); // the button too: a theme choice grows its circle from here
       });
     });
   }
@@ -321,7 +321,7 @@ REBUILT.Components = (function () {
   /** Make the buttons from prefSwitch() work. Safe to call after every render of the container. */
   function bindPrefSwitch(root) {
     root.querySelectorAll("[data-pref-lang]").forEach((b) => b.addEventListener("click", () => REBUILT.I18n.setLang(b.dataset.prefLang)));
-    root.querySelectorAll("[data-pref-theme]").forEach((b) => b.addEventListener("click", () => REBUILT.Theme.setPref(b.dataset.prefTheme)));
+    root.querySelectorAll("[data-pref-theme]").forEach((b) => b.addEventListener("click", () => REBUILT.Theme.setPref(b.dataset.prefTheme, { origin: b })));
   }
 
   return {

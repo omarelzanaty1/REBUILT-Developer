@@ -57,6 +57,34 @@ The source tree is never stamped, so a local run (or any static server) works ex
 Adding a namespace: add its file under `js/locales/<lang>/`, its `<script>` line in `index.html`, **and** its name in `I18n.NAMESPACES`
 (`tests/i18n.test.js` fails if the three disagree).
 
+## Theme change — the circular reveal
+
+Tapping a theme button (the sun / moon on the welcome, sign-in, sign-up, recovery and onboarding screens, or a choice in Settings)
+grows a circle of the **new** theme from the centre of that button until it covers the screen (700 ms); the colours change as it spreads.
+It is implemented **once**, in `REBUILT.Theme.setPref(next, { origin })` (`js/theme.js`) with the matching rules in `css/base.css`; screens
+only pass the element that was tapped (`Components.bindPrefSwitch`, the Settings segmented control). `origin` may be an element or `{x, y}`;
+its centre is measured at the moment of the tap, before the screen is redrawn.
+
+| Situation | What happens |
+|---|---|
+| Browser has `document.startViewTransition` | the old screen is kept as a picture, the page is redrawn in the new theme, and `::view-transition-new(root)` is revealed through a `clip-path: circle()` animation (WAAPI, 700 ms, `cubic-bezier(.4,0,.2,1)`); the default cross-fade is switched off and element colour transitions are suspended (class `theme-reveal` on `<html>`) so the new colours are exactly the theme's from the first frame |
+| No view transitions | class `theme-fade`: the colours of what is on screen cross-fade (~0.42 s), then the page is redrawn with the matching logos |
+| `prefers-reduced-motion`, or the in-app "reduce motion" setting | the theme changes at once, nothing moves |
+| The colours would not change (choosing **System** on a device that already shows that theme) | applied at once, no motion |
+| **System** mode and the device switches light / dark by itself | applied at once, never an animation |
+| A second change while one is running | the one in flight is finished (jumps to its end) and the new one starts: never two at once. The choice is saved *first*, so a refresh in the middle keeps it |
+| A language change while a reveal is running | the reveal is finished first (`I18n.onChange` hook), then the screen is redrawn: the two never fight over the screen |
+
+Good to know:
+* **Taps are ignored for the ~700 ms of the circle.** While a view transition runs, Chromium sends pointer events to the page root, not to
+  the buttons (`pointer-events: none` on the pseudo-elements does not change that). Keyboard and scrolling are unaffected. A tap after
+  the circle ends works at once; repeated taps never queue up.
+* The theme attribute (`data-theme`) lands on the *next frame* after the tap (the browser takes its picture of the old screen first);
+  `Theme.getPref()` / `getResolved()` and the saved preference are updated immediately. Tests that read the attribute wait for it.
+* Both inks of the logos are fetched once after load (`Brand`), and Settings keeps the last "sign-in methods" answer for the account:
+  otherwise the redraw made the page a little shorter for a moment and the scroll position jumped.
+* `Theme.isAnimating()` and `Theme.REVEAL_MS` are exposed for tests.
+
 ## Rules
 
 1. **No Arabic (or English) text in code.** UI text is `REBUILT.t("ns.key")`. `tests/i18n.test.js` fails if an Arabic
@@ -95,5 +123,11 @@ Adding a namespace: add its file under `js/locales/<lang>/`, its `<script>` line
   a cached old one cannot mix builds; the first screen is never drawn in the wrong language; a cold load and a cached load read the
   same. `RB_BUILD_REF=<commit>` runs the same suite against an older commit — on `6323b01` (the one that had the bug) 7 of its 24
   checks fail, on the fix all pass.
+* `node tests/browser/run_theme_reveal.js` — the circular reveal in real Chromium (138 checks): the circle starts at the real centre of the tapped
+  button and is a clean, growing circle (pixel-compared frozen frames: old screen / frame / new screen), 700 ms, from the welcome, sign-in,
+  sign-up, recovery, every onboarding step and Settings, on desktop and on a phone with touch; System mode (no motion when nothing changes,
+  the device flipping by itself followed at once); refresh in the middle of the circle; fast repeated taps (never two reveals, last choice wins,
+  nothing stuck); the no-view-transition fallback; reduced motion; language × theme together; data and the test-double account untouched; every
+  page ends complete after a change.
 * `node tests/stamp-build.test.js` — the build stamp.
 * All of them are part of `tests/browser/run-all.sh` and of CI (`pages.yml` runs the unit ones).
